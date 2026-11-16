@@ -51,8 +51,11 @@ async def mock_gnani():
                         "chunk_index": i, "is_final": False,
                         "audio": base64.b64encode(b"\x01\x02" * 240).decode()}}))
                     await asyncio.sleep(0.005)
+                # The live server sends two completes per reply (checked 2026-11-16).
                 await ws.send(json.dumps({"type": "complete", "data": {
                     "chunk_index": 20, "audio": "", "is_final": True}}))
+                await ws.send(json.dumps({"type": "complete", "message": "Streaming completed",
+                                          "request_id": "r1", "data": None}))
 
     async with serve(handler, "127.0.0.1", 0) as server:
         port = server.sockets[0].getsockname()[1]
@@ -122,6 +125,17 @@ async def test_tts_streams_pcm(mock_gnani):
     assert req["model"] == "timbre-v3.0" and req["language"] == "hi-IN"
     assert req["audio_config"]["sample_rate"] == settings.tts_sample_rate
     assert len(chunks) == 20 and all(len(c) % 2 == 0 for c in chunks)
+
+
+async def test_tts_back_to_back_replies_on_one_socket(mock_gnani):
+    """The second complete of reply 1 must not end reply 2 before it starts."""
+    settings, seen = mock_gnani
+    tts = GnaniTTS(settings)
+    first = [c async for c in tts.synthesize("greeting", "hi")]
+    second = [c async for c in tts.synthesize("सुरेश: 340 उधार।", "hi")]
+    third = [c async for c in tts.synthesize("third", "hi")]
+    await tts.close()
+    assert len(first) == len(second) == len(third) == 20
 
 
 async def test_tts_barge_in_then_next_reply_is_clean(mock_gnani):

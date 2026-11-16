@@ -96,22 +96,33 @@ class GnaniTTS:
                 if attempt == 2:
                     raise
 
-        ws, done, carry = self._ws, False, b""
+        # The live server ends every reply with two ``complete`` messages (one
+        # with ``data``, one with ``message``). Stopping at the first leaves the
+        # second queued, so a ``complete`` seen before this reply's ``start``
+        # belongs to the previous reply and is skipped.
+        ws, done, started, carry = self._ws, False, False, b""
         try:
             async for raw in ws:
                 if isinstance(raw, bytes):
+                    started = True
                     chunk = raw
                 else:
                     msg = json.loads(raw)
                     kind = msg.get("type")
                     if kind == "error":
                         raise RuntimeError(f"TTS error: {msg.get('message')}")
+                    if kind == "start":
+                        started = True
+                        continue
                     data = msg.get("data") or {}
                     if kind == "complete" or (data.get("is_final") and not data.get("audio")):
+                        if not started:
+                            continue                 # tail of the previous reply
                         done = True
                         break
                     if kind != "audio" or not data.get("audio"):
                         continue
+                    started = True
                     chunk = base64.b64decode(data["audio"])
                 chunk = carry + _strip_wav(chunk)
                 carry = chunk[len(chunk) - (len(chunk) % 2):]   # keep samples whole
