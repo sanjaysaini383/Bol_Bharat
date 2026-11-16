@@ -35,12 +35,23 @@ EventHandler = Callable[[dict], Awaitable[None]]
 
 
 def language_header(lang: str | None) -> str:
-    """Language hint for the session: the chosen language plus English."""
+    """One locale per stream, or ``indic-auto`` to let Prisma detect it.
+
+    The docs describe a comma-separated list for Prisma v3.0, but the live
+    streaming endpoint rejects it ("exactly one locale is required"). The
+    locale is a hint, not a lock, so English words in Hinglish still come
+    through on ``hi-IN``.
+    """
     if not lang or lang == "auto":
         return "indic-auto"
-    if lang == "en":
-        return "en-IN,hi-IN"
-    return f"{lang}-IN,en-IN"
+    return f"{lang}-IN"
+
+
+# After the server rejects a stream with an ``error`` it closes the socket.
+# Reconnecting on the next audio frame would loop about once a second while
+# the mic is open, so wait before trying again.
+RETRY_MIN_S = 2.0
+RETRY_MAX_S = 30.0
 
 
 class GnaniSTT:
@@ -55,6 +66,8 @@ class GnaniSTT:
         self._buf = bytearray()
         self._lock = asyncio.Lock()
         self._closed = False
+        self._backoff = 0.0
+        self._retry_at = 0.0
 
     def _headers(self) -> dict[str, str]:
         terms, size = [], 0
@@ -87,6 +100,7 @@ class GnaniSTT:
                      len(self._keyterms))
 
     async def _read(self, ws: ClientConnection) -> None:
+        rejected = False
         try:
             async for raw in ws:
                 if isinstance(raw, bytes):
@@ -95,6 +109,11 @@ class GnaniSTT:
                     event = json.loads(raw)
                 except ValueError:
                     continue
+                kind = event.get("type")
+                if kind == "error":
+                    rejected = True
+                elif kind == "transcript":
+                    self._backoff = 0.0              # the stream works
                 await self._on_event(event)
         except ConnectionClosed as e:
             log.info("STT closed: %s", e)
@@ -103,10 +122,16 @@ class GnaniSTT:
         finally:
             if self._ws is ws:
                 self._ws = None
+            if rejected:
+                self._backoff = min(max(self._backoff * 2, RETRY_MIN_S), RETRY_MAX_S)
+                self._retry_at = asyncio.get_running_loop().time() + self._backoff
+                log.warning("STT rejected the stream; retrying in %.0f s", self._backoff)
 
     async def _send(self, payload: bytes | str) -> bool:
         for attempt in (1, 2):
             if self._ws is None:
+                if asyncio.get_running_loop().time() < self._retry_at:
+                    return False                     # backing off after a rejection
                 try:
                     await self.connect()
                 except Exception as e:

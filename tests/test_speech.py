@@ -13,18 +13,25 @@ import pytest
 from websockets.asyncio.server import serve
 
 from munim.config import get_settings
-from munim.gnani_stt import FRAME_BYTES, GnaniSTT
+from munim.gnani_stt import FRAME_BYTES, GnaniSTT, language_header
 from munim.gnani_tts import GnaniTTS
 
 
 @pytest.fixture
 async def mock_gnani():
-    seen = {"stt_headers": None, "frames": [], "tts_requests": []}
+    seen = {"stt_headers": None, "frames": [], "tts_requests": [], "stt_connects": 0}
 
     async def handler(ws):
         path = ws.request.path
         if path == "/stt":
+            seen["stt_connects"] += 1
             seen["stt_headers"] = dict(ws.request.headers)
+            if "," in ws.request.headers.get("language_code", ""):
+                # What the live API does (checked 2026-11-16), despite the docs.
+                await ws.send(json.dumps({"type": "error", "message":
+                    "Invalid language_code: exactly one locale is required (e.g. hi-IN)."}))
+                await ws.close(1008)
+                return
             await ws.send(json.dumps({"type": "connected"}))
             async for msg in ws:
                 if isinstance(msg, bytes):
@@ -74,12 +81,36 @@ async def test_stt_frames_headers_and_commit(mock_gnani):
 
     h = seen["stt_headers"]
     assert h["model"] == "prisma-v3.0" and h["x-api-key-id"] == "test-key"
-    assert h["language_code"] == "hi-IN,en-IN"
+    assert h["language_code"] == "hi-IN"                 # one locale: the live API rejects lists
     assert "रमेश कुमार" in json.loads(h["keyterms"])     # names sent as \u-escaped JSON
     assert h["keyterms"].isascii()
     assert seen["frames"] and all(n == FRAME_BYTES for n in seen["frames"])
     assert sum(seen["frames"]) == 3072                   # tail padded to a full frame
     assert events[-1]["text"] == "रमेश का 340 उधार"
+
+
+@pytest.mark.parametrize("lang,header", [("hi", "hi-IN"), ("en", "en-IN"), ("kn", "kn-IN"),
+                                         ("auto", "indic-auto"), (None, "indic-auto")])
+def test_language_header_is_a_single_locale(lang, header):
+    assert language_header(lang) == header
+
+
+async def test_stt_rejected_stream_backs_off(mock_gnani, monkeypatch):
+    """A config error must not turn into a reconnect loop while the mic is open."""
+    settings, seen = mock_gnani
+    monkeypatch.setattr("munim.gnani_stt.language_header", lambda lang: "hi-IN,en-IN")
+    errors = []
+
+    async def on_event(e):
+        if e["type"] == "error":
+            errors.append(e)
+
+    stt = GnaniSTT(settings, on_event, "hi")
+    for _ in range(40):                          # ~1.3 s of mic audio at real-time pace
+        await stt.send_audio(b"\x00" * FRAME_BYTES)
+        await asyncio.sleep(0.032)
+    await stt.close()
+    assert seen["stt_connects"] == 1 and len(errors) == 1
 
 
 async def test_tts_streams_pcm(mock_gnani):
