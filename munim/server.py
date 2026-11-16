@@ -28,7 +28,7 @@ class App:
         key = load_key(settings.enc_key, settings.data_dir)
         self.ledger = Ledger(settings.data_dir / "khata.db", key, settings.retention_hours)
         self.llm = LLM(settings.llm_api_key, settings.llm_base_url, settings.llm_model,
-                       settings.llm_timeout_s) if settings.has_llm else None
+                       settings.llm_timeout_s, settings.llm_reasoning_effort) if settings.has_llm else None
         self.sessions: set[Session] = set()
         if settings.demo_seed and not self.ledger.customers():
             seed(self.ledger)

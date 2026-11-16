@@ -149,8 +149,10 @@ def to_parse(data: dict, transcript: str) -> Parse | None:
 
 
 class LLM:
-    def __init__(self, api_key: str, base_url: str, model: str, timeout_s: float = 4.0):
+    def __init__(self, api_key: str, base_url: str, model: str, timeout_s: float = 4.0,
+                 reasoning_effort: str = ""):
         self.model = model
+        self.reasoning_effort = reasoning_effort
         self._client = httpx.AsyncClient(
             base_url=base_url, timeout=timeout_s,
             headers={"Authorization": f"Bearer {api_key}"})
@@ -173,6 +175,8 @@ class LLM:
             "max_tokens": 400,
             "response_format": {"type": "json_object"},
         }
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
         try:
             r = await self._client.post("/chat/completions", json=body)
             r.raise_for_status()

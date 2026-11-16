@@ -112,7 +112,8 @@ button and speak.
 | `GNANI_API_KEY` | **Yes** | Your Gnani API Platform key (Prisma v3.0 + Timbre v3.0). |
 | `LLM_API_KEY` | Recommended | Key for any OpenAI-compatible chat API. The default is Groq's free tier: <https://console.groq.com/keys>. Without it, Hindi/Hinglish/English still work through rules; the other eight languages need it. |
 | `LLM_BASE_URL` | No | Default `https://api.groq.com/openai/v1`. |
-| `LLM_MODEL` | No | Default `llama-3.3-70b-versatile`. Pick any fast model your provider offers. |
+| `LLM_MODEL` | No | Default `openai/gpt-oss-120b` (about 0.7 s on Groq). `qwen/qwen3.8-27b` is faster (about 0.5 s) with `LLM_REASONING_EFFORT=none`. Groq retires models; `GET /models` lists the current ones. |
+| `LLM_REASONING_EFFORT` | No | Default `low`. Sent only when set; leave it empty for models that do not take it. |
 | `KHATA_ENC_KEY` | No | 32-byte base64 key for encryption at rest. If empty, one is generated into `data/khata.key`. |
 | `ACCESS_TOKEN` | No | If set, the app needs `?k=<token>` in the URL. Set this on a public demo link. |
 | `SHOP_NAME`, `DEFAULT_LANG`, `GNANI_TTS_VOICE`, … | No | See [.env.example](.env.example) for the full list. |

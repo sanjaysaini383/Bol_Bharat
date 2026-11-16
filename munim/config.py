@@ -46,6 +46,7 @@ class Settings:
     llm_base_url: str
     llm_model: str
     llm_timeout_s: float
+    llm_reasoning_effort: str
     enc_key: str
     data_dir: Path
     shop_name: str
@@ -83,8 +84,11 @@ def get_settings() -> Settings:
         min_silence_ms=_i("GNANI_MIN_SILENCE_MS", 350),
         llm_api_key=_s("LLM_API_KEY"),
         llm_base_url=_s("LLM_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/"),
-        llm_model=_s("LLM_MODEL", "llama-3.3-70b-versatile"),
+        llm_model=_s("LLM_MODEL", "openai/gpt-oss-120b"),
         llm_timeout_s=_f("LLM_TIMEOUT_S", 4.0),
+        # Reasoning models (gpt-oss, qwen3) think before answering; "low" keeps
+        # them near 0.7 s. Set it empty for models that reject the field.
+        llm_reasoning_effort=_s("LLM_REASONING_EFFORT", "low"),
         enc_key=_s("KHATA_ENC_KEY"),
         data_dir=Path(_s("DATA_DIR") or ROOT / "data"),
         shop_name=_s("SHOP_NAME", "Kirana Store"),
