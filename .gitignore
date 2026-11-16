@@ -1,0 +1,23 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# local ledger data and encryption key (never commit)
+data/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# editor / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# hackathon handout and local audio samples
+*.pdf
+eval/audio/
