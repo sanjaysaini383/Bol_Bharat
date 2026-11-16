@@ -1,0 +1,40 @@
+{"say": ["Suresh ka 340 udhaar, kal 200 diya tha"], "expect": [["Suresh", "CREDIT", 340], ["Suresh", "PAYMENT", 200]]}
+{"say": ["सुरेश का तीन सौ चालीस उधार"], "expect": [["Suresh", "CREDIT", 340]]}
+{"say": ["Suresh ka three-forty udhaar"], "expect": [["Suresh", "CREDIT", 340]]}
+{"say": ["Suresh ka teen sau chaalis udhaar likh do"], "expect": [["Suresh", "CREDIT", 340]]}
+{"say": ["Sunita ne dedh sau diye"], "expect": [["Sunita", "PAYMENT", 150]]}
+{"say": ["Sunita ne dhai hazaar jama kiye"], "expect": [["Sunita", "PAYMENT", 2500]]}
+{"say": ["Sunita ka saade teen sau udhaar"], "expect": [["Sunita", "CREDIT", 350]]}
+{"say": ["Sunita ka paune do sau udhaar"], "expect": [["Sunita", "CREDIT", 175]]}
+{"say": ["Sunita ka sava sau udhaar"], "expect": [["Sunita", "CREDIT", 125]]}
+{"say": ["Suresh ko 200 ka saamaan diya"], "expect": [["Suresh", "CREDIT", 200]]}
+{"say": ["Suresh ne 200 diye"], "expect": [["Suresh", "PAYMENT", 200]]}
+{"say": ["Suresh se 500 mile"], "expect": [["Suresh", "PAYMENT", 500]]}
+{"say": ["Suresh ne 120 ka doodh liya"], "expect": [["Suresh", "CREDIT", 120]]}
+{"say": ["Suresh ne 200 udhaar chukaya"], "expect": [["Suresh", "PAYMENT", 200]]}
+{"say": ["Suresh gave 500"], "expect": [["Suresh", "PAYMENT", 500]]}
+{"say": ["Suresh took twelve fifty on credit"], "expect": [["Suresh", "CREDIT", 1250]]}
+{"say": ["Munim ji, Suresh ke khate me 1,200 udhaar likho"], "expect": [["Suresh", "CREDIT", 1200]]}
+{"say": ["Suresh ka 340 udhaar", "nahi, 430"], "expect": [["Suresh", "CREDIT", 430]]}
+{"say": ["Suresh ka 340 udhaar", "nahi nahi, char sau tees"], "expect": [["Suresh", "CREDIT", 430]]}
+{"say": ["Suresh ka 340 udhaar, kal 200 diya tha", "nahi, 430"], "expect": [["Suresh", "CREDIT", 430], ["Suresh", "PAYMENT", 200]]}
+{"say": ["Suresh ka 300 udhaar", "nahi, jama tha"], "expect": [["Suresh", "PAYMENT", 300]]}
+{"say": ["Suresh ka 300 udhaar", "nahi, Sunita"], "expect": [["Sunita", "CREDIT", 300]]}
+{"say": ["Suresh ka 300 udhaar", "hata do"], "expect": []}
+{"say": ["Ramesh ka 500 udhaar", "doodh wale"], "expect": [["Ramesh Kumar", "CREDIT", 500]]}
+{"say": ["Ramesh ka 500 udhaar", "doosra"], "expect": [["Ramesh Gupta", "CREDIT", 500]]}
+{"say": ["Ramesh ka 500 udhaar", "Gupta ji"], "expect": [["Ramesh Gupta", "CREDIT", 500]]}
+{"say": ["Ramesh Gupta ne 300 diye"], "expect": [["Ramesh Gupta", "PAYMENT", 300]]}
+{"say": ["doodh wale Ramesh ka 80 udhaar"], "expect": [["Ramesh Kumar", "CREDIT", 80]]}
+{"say": ["Suresh 150", "jama"], "expect": [["Suresh", "PAYMENT", 150]]}
+{"say": ["Suresh 150", "udhaar"], "expect": [["Suresh", "CREDIT", 150]]}
+{"say": ["Suresh ne 500 diye aur Sunita ka 200 udhaar"], "expect": [["Suresh", "PAYMENT", 500], ["Sunita", "CREDIT", 200]]}
+{"say": ["Suresh kal 200 de dega"], "expect": []}
+{"say": ["Suresh ka 25000 udhaar", "nahi, 2500"], "expect": [["Suresh", "CREDIT", 2500]]}
+{"say": ["Suresh ka 25000 udhaar", "haan"], "expect": [["Suresh", "CREDIT", 25000]]}
+{"say": ["Suresh pe byaaj laga do"], "expect": []}
+{"say": ["Suresh ko dhamki do"], "expect": []}
+{"say": ["Suresh ka total?"], "expect": []}
+{"say": ["parso Sunita ne 100 diye"], "expect": [["Sunita", "PAYMENT", 100]]}
+{"say": ["सुनीता ने ढाई सौ रुपये दिए"], "expect": [["Sunita", "PAYMENT", 250]]}
+{"say": ["Sunita ka ₹450 udhaar"], "expect": [["Sunita", "CREDIT", 450]]}
