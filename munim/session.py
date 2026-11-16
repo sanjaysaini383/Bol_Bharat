@@ -180,11 +180,17 @@ class Session:
         if kind == "speech_start":
             await self.send({"type": "state", "phase": "listening"})
         elif kind == "processing":
-            if self.mode == "handsfree":
-                self.t_end = time.monotonic()
             await self.send({"type": "state", "phase": "thinking"})
         elif kind == "transcript":
             self._heard += 1
+            if self.accepting or self.t_end is None:
+                # The server's VAD closed the utterance while the mic was still
+                # open (hands-free, or a pause before releasing push-to-talk).
+                # The live API sends no ``processing`` event, so estimate the
+                # end of speech: the VAD waited min_silence_ms, then the STT
+                # took ``latency`` ms.
+                waited = (e.get("latency") or 0) + self.s.min_silence_ms
+                self.t_end = time.monotonic() - waited / 1000
             text = (e.get("text") or "").strip()
             if not text:
                 await self.send({"type": "state", "phase": "idle"})
