@@ -139,8 +139,14 @@ region to keep the round trip to Gnani short.
 
 ### First-run checklist
 
-The speech clients are written against Gnani's published WebSocket protocol. Before a demo,
-confirm them with your own key:
+The speech clients were checked against the live Gnani API on 2026-11-16, using Timbre audio
+fed into the app as microphone input. Prisma v3.0 returned transcripts in about 110 ms, and
+end of speech to first reply audio was about 0.7 s for Hindi (rules) and 1.3 s for Kannada
+(LLM). Where the live service differs from the published docs, the code follows the live
+service: one `language_code` per stream (a list is rejected), two `complete` messages per
+TTS reply, and no `processing` event.
+
+That check used synthetic speech. Before a demo, confirm with your own voice and key:
 
 1. Record a short 16 kHz mono WAV of your own voice and run `python scripts/probe_stt.py clip.wav`. You should see the transcript and what the agent understood.
 2. Compare number output: `--format transcribe` (digits, the default) against `--format codemix`.
@@ -187,7 +193,7 @@ Munim-ji has asked a question, the wake phrase is not needed.
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                         # 145 unit, conversation and protocol tests
+pytest                         # 152 unit, conversation and protocol tests
 python scripts/eval_text.py    # 40 scripted conversations, judged like the live test
 ```
 
