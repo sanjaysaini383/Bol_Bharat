@@ -1,0 +1,14 @@
+{
+  "name": "Munim-ji Voice Khata",
+  "short_name": "Munim-ji",
+  "description": "Hands-free voice ledger for kirana stores",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4efe6",
+  "theme_color": "#f4efe6",
+  "lang": "hi",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

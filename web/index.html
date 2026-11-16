@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4efe6">
+  <title>Munim-ji · Voice Khata</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-phase="idle">
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">मु</span>
+      <div>
+        <h1>Munim-ji</h1>
+        <p>Voice khata <span class="ai-tag">AI</span></p>
+      </div>
+    </div>
+    <div class="top-right">
+      <button id="langBtn" class="chip" aria-label="Language">Auto</button>
+      <span id="conn" class="conn" title="Connecting"></span>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main>
+    <section class="summary" aria-label="Summary">
+      <div class="total">
+        <span class="label">Kul baaki</span>
+        <span id="total" class="figure">₹0</span>
+        <span id="owing" class="sub">&nbsp;</span>
+      </div>
+      <dl class="today">
+        <div><dt>Aaj udhaar</dt><dd id="tCredit" class="credit">₹0</dd></div>
+        <div><dt>Aaj jama</dt><dd id="tPay" class="pay">₹0</dd></div>
+      </dl>
+    </section>
+
+    <section class="live" id="live" aria-live="polite">
+      <div class="live-row">
+        <span class="who">Aap</span>
+        <p id="heard" class="heard muted">Button dabakar boliye: “Ramesh ka 340 udhaar”</p>
+      </div>
+      <div class="live-row">
+        <span class="who">Munim</span>
+        <p id="said" class="said muted">—</p>
+      </div>
+      <div id="chips" class="chips"></div>
+      <div id="meta" class="meta"></div>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="customers" class="on">Grahak</button>
+      <button role="tab" data-tab="entries">Entries</button>
+      <button role="tab" data-tab="promises">Vaade</button>
+    </nav>
+    <section id="list" class="list"></section>
+  </main>
+
+  <footer class="dock">
+    <button id="modeBtn" class="side" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h2M8 7v10M12 4v16M16 8v8M20 11v2"/></svg>
+      <span>Hands-free</span>
+    </button>
+    <button id="mic" class="mic" aria-label="Hold to talk">
+      <span class="ring"></span>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="9" y="3" width="6" height="11" rx="3"/>
+        <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>
+      </svg>
+    </button>
+    <button id="menuBtn" class="side">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+      <span>Menu</span>
+    </button>
+    <p id="hint" class="hint">Dabakar boliye</p>
+  </footer>
+</div>
+
+<!-- First screen: AI disclosure and microphone consent -->
+<div id="welcome" class="welcome">
+  <div class="welcome-card">
+    <span class="mark big" aria-hidden="true">मु</span>
+    <h2>Munim-ji</h2>
+    <p class="lead">Bolkar khata likhiye. Screen chhoone ki zaroorat nahi.</p>
+    <ul>
+      <li><strong>Yeh ek AI sahayak hai,</strong> insaan nahi.</li>
+      <li>Aapki awaaz likhne ke liye Gnani speech service ko bheji jaati hai.</li>
+      <li>Khata is device/server par encrypted rehta hai. Demo mein sirf banavati (synthetic) naam.</li>
+    </ul>
+    <button id="startBtn" class="primary">Shuru karein</button>
+    <p class="fine">Start · I understand this is an AI assistant</p>
+  </div>
+</div>
+
+<dialog id="langSheet" class="sheet">
+  <h3>Bhasha · Language</h3>
+  <div id="langList" class="lang-list"></div>
+  <button class="ghost" data-close>Band karein</button>
+</dialog>
+
+<dialog id="menuSheet" class="sheet">
+  <h3>Menu</h3>
+  <form id="typeForm" class="type-form">
+    <label for="typeInput">Likhkar bhejein (shor zyada ho to)</label>
+    <div class="row">
+      <input id="typeInput" autocomplete="off" placeholder="Ramesh ka 340 udhaar">
+      <button class="primary small" type="submit">Bhejein</button>
+    </div>
+  </form>
+  <div class="menu-help">
+    <p><strong>Boliye:</strong></p>
+    <p>“Ramesh ka 340 udhaar, kal 200 diya tha”</p>
+    <p>“Nahi, 430” · “Hata do”</p>
+    <p>“Ramesh ka total?” · “Aaj kitna udhaar gaya?”</p>
+    <p>Hands-free mein pehle “Munim ji” boliye.</p>
+  </div>
+  <button id="resetBtn" class="ghost">Demo data dobara load karein</button>
+  <button id="purgeBtn" class="ghost">Saare transcripts mitayein</button>
+  <p class="fine">Poora khata mitane ke liye boliye: “mera sara data delete karo”.<br>
+     STT: Gnani Prisma v3.0 · TTS: Gnani Timbre v3.0</p>
+  <button class="ghost" data-close>Band karein</button>
+</dialog>
+
+<dialog id="reminderSheet" class="sheet">
+  <h3>Vinamra reminder</h3>
+  <p class="fine">Sirf un grahakon ke liye jinhone anumati di hai. Aap khud bhejte hain.</p>
+  <p id="reminderText" class="reminder-text"></p>
+  <div class="row">
+    <button id="shareBtn" class="primary">Share</button>
+    <button id="copyBtn" class="ghost">Copy</button>
+  </div>
+  <button class="ghost" data-close>Band karein</button>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
