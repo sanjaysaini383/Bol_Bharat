@@ -290,6 +290,16 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outli
 
 /* ------------------------------------------------- customer page (statement) */
 .row-item[data-id] { cursor: pointer; }
+/* The customer page is not modal: it rests on top of the dock so the mic
+   stays in reach while it is open. */
+.sheet.peek {
+  position: fixed; z-index: 30; inset: auto 0 calc(var(--dock-h) + env(safe-area-inset-bottom));
+  margin: 0 auto; max-height: calc(100vh - var(--dock-h) - 72px);
+  padding-bottom: 16px; border-radius: 12px;
+  border: 1px solid var(--rule); border-top: 2px solid var(--ink);
+  box-shadow: 0 -10px 30px rgba(33, 28, 21, .18);
+}
+.sheet.peek .stmt { max-height: 30vh; }
 .cust-head { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; }
 .cust-head h3 { margin-bottom: 2px; }
 .cust-head .fine { margin-top: 0; }

@@ -150,6 +150,7 @@ function renderReply(m) {
     $('reminderSheet').showModal();
   }
   if (m.statement) openCustomer(m.statement.id);
+  else closeCustomer();              // the conversation moved on
 }
 
 // One customer's page, like a page of the paper khata: every line with the
@@ -186,8 +187,14 @@ async function openCustomer(id) {
       el('span', 'bal', rupee(e.balance)));
     rows.append(row);
   }
+  // Not modal: the page sits above the dock, so the mic stays usable and
+  // the next spoken command needs no touch to dismiss it.
   const sheet = $('custSheet');
-  if (!sheet.open) sheet.showModal();
+  if (!sheet.open) sheet.show();
+}
+
+function closeCustomer() {
+  if ($('custSheet').open) $('custSheet').close();
 }
 
 function renderMetrics(m) {
@@ -370,7 +377,7 @@ micBtn.addEventListener('pointercancel', pttUp);
 micBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && !e.repeat && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)
-      && !document.querySelector('dialog[open]')) { e.preventDefault(); pttDown(); }
+      && !document.querySelector('dialog[open]:not(.peek)')) { e.preventDefault(); pttDown(); }
 });
 document.addEventListener('keyup', (e) => { if (e.code === 'Space') pttUp(); });
 
