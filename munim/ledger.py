@@ -11,12 +11,16 @@ struck-through line is kept as an audit trail.
 
 from __future__ import annotations
 
+import csv
+import io
 import sqlite3
 import threading
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
+
+from cryptography.exceptions import InvalidTag
 
 from .crypto import Box
 from .textnorm import name_key, skeleton, tokenize
@@ -117,8 +121,14 @@ class Ledger:
     # ------------------------------------------------------------ customers
     def _load(self) -> None:
         self._cache.clear()
-        for r in self._db.execute("SELECT * FROM customers WHERE active=1"):
-            self._cache[r["id"]] = self._customer(r)
+        try:
+            for r in self._db.execute("SELECT * FROM customers WHERE active=1"):
+                self._cache[r["id"]] = self._customer(r)
+        except InvalidTag:
+            raise RuntimeError(
+                "The encryption key does not open this ledger. If KHATA_ENC_KEY is set, it is "
+                "not the key the ledger was created with: clear it to use the key file in "
+                "DATA_DIR, or point DATA_DIR at an empty folder to start a new ledger.") from None
 
     def _customer(self, r: sqlite3.Row) -> Customer:
         name = self._box.open(r["name"]) or ""
@@ -228,6 +238,29 @@ class Ledger:
             out.append({"id": r["id"], "kind": r["kind"], "amount": r["amount"],
                         "date": r["txn_date"], "at": r["created_at"], "balance": running})
         return out[::-1][:limit]
+
+    def customer_page(self, cid: int, today: date | None = None) -> dict | None:
+        """One customer's page: every active line with the balance after it."""
+        c = self.customer(cid)
+        if c is None:
+            return None
+        return {"id": c.id, "name": c.name, "spoken": c.spoken, "descriptor": c.descriptor,
+                "opt_in": c.opt_in, "balance": self.balance(c.id),
+                "today": (today or date.today()).isoformat(),
+                "entries": self.statement(c.id),
+                "promises": [{"amount": amount, "due": due.isoformat() if due else None}
+                             for _, _, amount, due in self.open_promises(c.id)]}
+
+    def export_csv(self) -> str:
+        """The whole khata as CSV text, safe to open in a spreadsheet."""
+        out = io.StringIO()
+        w = csv.writer(out)
+        w.writerow(["date", "customer", "type", "amount", "status", "recorded_at"])
+        for row in self.export_rows():
+            # A name is free text: stop a spreadsheet from running it as a formula.
+            row[1] = "'" + row[1] if row[1][:1] in "=+-@" else row[1]
+            w.writerow(row)
+        return "\ufeff" + out.getvalue()
 
     def export_rows(self) -> list[list]:
         """Every ledger line for a CSV backup, oldest first."""

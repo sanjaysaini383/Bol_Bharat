@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import csv
 import hmac
-import io
 import logging
 from contextlib import asynccontextmanager
 from datetime import date
@@ -28,6 +26,9 @@ log = logging.getLogger("munim")
 class App:
     def __init__(self, settings: Settings):
         self.settings = settings
+        if settings.ephemeral:
+            log.warning("Serverless host: the ledger lives in %s and lasts only as long as this "
+                        "function instance.", settings.data_dir)
         key = load_key(settings.enc_key, settings.data_dir)
         self.ledger = Ledger(settings.data_dir / "khata.db", key, settings.retention_hours)
         self.llm = LLM(settings.llm_api_key, settings.llm_base_url, settings.llm_model,
@@ -40,6 +41,12 @@ class App:
         snap = {"type": "ledger", "data": self.ledger.snapshot()}
         await asyncio.gather(*(s.send(snap) for s in list(self.sessions)),
                              return_exceptions=True)
+
+    async def reset_demo(self) -> None:
+        """Wipe everything and reload the synthetic demo customers."""
+        self.ledger.wipe_all()
+        seed(self.ledger)
+        await self.broadcast_ledger()
 
     def authorised(self, token: str | None) -> bool:
         want = self.settings.access_token
@@ -60,6 +67,9 @@ async def _purge_loop(app: App) -> None:
 
 @asynccontextmanager
 async def lifespan(api: FastAPI):
+    if not logging.getLogger().handlers:        # imported directly by a host (Vercel)
+        logging.basicConfig(level=logging.INFO,
+                            format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = get_settings()
     app = App(settings)
     api.state.app = app
@@ -91,7 +101,8 @@ async def health(request: Request):
     app: App = request.app.state.app
     s = app.settings
     return {"ok": True, "version": __version__, "speech": s.has_speech, "llm": s.has_llm,
-            "stt": s.stt_model, "tts": s.tts_model, "locked": bool(s.access_token)}
+            "stt": s.stt_model, "tts": s.tts_model, "locked": bool(s.access_token),
+            "storage": "temporary" if s.ephemeral else "disk"}
 
 
 @api.get("/api/ledger")
@@ -102,38 +113,23 @@ async def ledger(request: Request):
 @api.get("/api/customer/{cid}")
 async def customer(cid: int, request: Request):
     """One customer's page: every active line with the balance after it."""
-    led = _app(request).ledger
-    c = led.customer(cid)
-    if c is None:
+    page = _app(request).ledger.customer_page(cid)
+    if page is None:
         raise HTTPException(404, "no such customer")
-    return {"id": c.id, "name": c.name, "spoken": c.spoken, "descriptor": c.descriptor,
-            "opt_in": c.opt_in, "balance": led.balance(c.id), "today": date.today().isoformat(),
-            "entries": led.statement(c.id),
-            "promises": [{"amount": amount, "due": due.isoformat() if due else None}
-                         for _, _, amount, due in led.open_promises(c.id)]}
+    return page
 
 
 @api.get("/api/export.csv")
 async def export_csv(request: Request):
     """The whole khata as a spreadsheet file, for a backup or an accountant."""
-    out = io.StringIO()
-    w = csv.writer(out)
-    w.writerow(["date", "customer", "type", "amount", "status", "recorded_at"])
-    for row in _app(request).ledger.export_rows():
-        # A name is free text: stop a spreadsheet from running it as a formula.
-        row[1] = "'" + row[1] if row[1][:1] in "=+-@" else row[1]
-        w.writerow(row)
-    return Response("\ufeff" + out.getvalue(), media_type="text/csv; charset=utf-8", headers={
+    return Response(_app(request).ledger.export_csv(), media_type="text/csv; charset=utf-8", headers={
         "Content-Disposition": f'attachment; filename="khata-{date.today().isoformat()}.csv"'})
 
 
 @api.post("/api/demo/reset")
 async def demo_reset(request: Request):
     """Wipe everything and reload the synthetic demo customers."""
-    app = _app(request)
-    app.ledger.wipe_all()
-    seed(app.ledger)
-    await app.broadcast_ledger()
+    await _app(request).reset_demo()
     return {"ok": True}
 
 

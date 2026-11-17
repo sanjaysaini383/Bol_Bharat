@@ -1,0 +1,20 @@
+# Read by Vercel: it installs [project] dependencies and runs the app named in
+# [tool.vercel]. Docker and local installs use requirements.txt; the test
+# tests/test_deploy.py fails if the two dependency lists drift apart.
+
+[project]
+name = "munim-ji"
+version = "1.0.0"
+description = "A hands-free voice khata for kirana stores (Gnani Prisma v3.0 + Timbre v3.0)."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "websockets>=14.0",
+    "httpx>=0.27",
+    "cryptography>=43",
+    "python-dotenv>=1.0",
+]
+
+[tool.vercel]
+entrypoint = "munim.server:api"

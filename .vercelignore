@@ -1,0 +1,17 @@
+# Never upload secrets or the local ledger, even with `vercel deploy` from a laptop
+# (the CLI does not read .gitignore).
+.env
+.env.*
+!.env.example
+data/
+*.pdf
+
+# Not needed by the running app
+.venv/
+__pycache__/
+.pytest_cache/
+tests/
+eval/
+docs/
+demo/
+scripts/

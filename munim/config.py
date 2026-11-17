@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +30,21 @@ def _i(name: str, default: int) -> int:
     return int(_f(name, default))
 
 
+def _serverless() -> bool:
+    """Vercel (and AWS Lambda underneath it): the code directory is read-only."""
+    return bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
+
+def _data_dir() -> Path:
+    if _s("DATA_DIR"):
+        return Path(_s("DATA_DIR"))
+    if _serverless():
+        # Only /tmp is writable. The ledger then lasts as long as the function
+        # instance: a cold start begins again from the demo customers.
+        return Path(tempfile.gettempdir()) / "munim"
+    return ROOT / "data"
+
+
 @dataclass(frozen=True)
 class Settings:
     gnani_api_key: str
@@ -49,6 +65,7 @@ class Settings:
     llm_reasoning_effort: str
     enc_key: str
     data_dir: Path
+    ephemeral: bool                 # storage lasts only as long as the process (serverless)
     shop_name: str
     access_token: str
     default_lang: str
@@ -90,7 +107,8 @@ def get_settings() -> Settings:
         # them near 0.7 s. Set it empty for models that reject the field.
         llm_reasoning_effort=_s("LLM_REASONING_EFFORT", "low"),
         enc_key=_s("KHATA_ENC_KEY"),
-        data_dir=Path(_s("DATA_DIR") or ROOT / "data"),
+        data_dir=_data_dir(),
+        ephemeral=not _s("DATA_DIR") and _serverless(),
         shop_name=_s("SHOP_NAME", "Kirana Store"),
         access_token=_s("ACCESS_TOKEN"),
         default_lang=lang if lang in LANGS else "hi",
