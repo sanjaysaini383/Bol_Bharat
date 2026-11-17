@@ -21,6 +21,7 @@ from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
 from .config import Settings
+from .textnorm import to_script
 
 log = logging.getLogger("munim.stt")
 
@@ -28,8 +29,39 @@ FRAME_BYTES = 1024
 SAMPLE_RATE = 16000
 
 # Shop vocabulary the recogniser should favour, on top of customer names.
-DOMAIN_TERMS = ["उधार", "जमा", "बाकी", "खाता", "हिसाब", "udhaar", "jama", "khata",
-                "मुनीम जी", "रिमाइंडर", "हटा दो"]
+# One list per language: hints are strong enough to change the language of
+# the transcript. With the Hindi list, a Kannada entry spoken in a Kannada
+# session came back as "सुरेश के 300 रुपये khata भरिए".
+DOMAIN_TERMS = {
+    "hi": ["उधार", "जमा", "बाकी", "खाता", "हिसाब", "udhaar", "jama", "khata",
+           "मुनीम जी", "रिमाइंडर", "हटा दो"],
+    "mr": ["उधार", "जमा", "बाकी", "खाते", "हिशोब"],
+    "kn": ["ಉದ್ರಿ", "ಸಾಲ", "ಜಮಾ", "ಬಾಕಿ", "ಖಾತೆ"],
+    "ta": ["கடன்", "வரவு", "பாக்கி", "கணக்கு"],
+    "te": ["అప్పు", "జమ", "బాకీ", "ఖాతా"],
+    "bn": ["বাকি", "জমা", "ধার", "খাতা"],
+    "gu": ["ઉધાર", "જમા", "બાકી", "ખાતું"],
+    "pa": ["ਉਧਾਰ", "ਜਮ੍ਹਾਂ", "ਬਾਕੀ", "ਖਾਤਾ"],
+    "ml": ["കടം", "വരവ്", "ബാക്കി", "കണക്ക്"],
+}
+
+
+def hint_terms(lang: str | None, names: list[str]) -> list[str]:
+    """Customer names and shop words for the recogniser, in the session's language.
+
+    Hindi, English and auto keep the Hindi list (the configuration the audio
+    eval measured). Any other language gets its own words first, and names
+    stored in Devanagari are re-spelled in its script; a script that cannot
+    spell a name (Tamil has no aspirates) keeps only the Latin spelling.
+    """
+    if lang in (None, "auto", "hi", "en"):
+        return names + DOMAIN_TERMS["hi"]
+    own = []
+    for name in names:
+        spelled = name if name.isascii() or lang == "mr" else to_script(name, lang)
+        if spelled and spelled not in own:
+            own.append(spelled)
+    return DOMAIN_TERMS.get(lang, []) + own
 
 EventHandler = Callable[[dict], Awaitable[None]]
 
@@ -71,7 +103,7 @@ class GnaniSTT:
 
     def _headers(self) -> dict[str, str]:
         terms, size = [], 0
-        for t in self._keyterms + DOMAIN_TERMS:
+        for t in hint_terms(self._lang, self._keyterms):
             size += len(json.dumps(t))
             if len(terms) >= 120 or size > 3000:    # keep the upgrade request small
                 break

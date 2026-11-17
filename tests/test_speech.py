@@ -13,7 +13,7 @@ import pytest
 from websockets.asyncio.server import serve
 
 from munim.config import get_settings
-from munim.gnani_stt import FRAME_BYTES, GnaniSTT, language_header
+from munim.gnani_stt import FRAME_BYTES, GnaniSTT, hint_terms, language_header
 from munim.gnani_tts import GnaniTTS
 
 
@@ -148,3 +148,41 @@ async def test_tts_barge_in_then_next_reply_is_clean(mock_gnani):
     await tts.close()
     assert len(chunks) == 20                    # no leftover audio from the first reply
     assert [r["text"] for r in seen["tts_requests"]][-1] == "second reply"
+
+
+# Hints decide the language of the transcript (found while recording the demo:
+# Hindi hints turned a Kannada entry into Hindi words).
+NAMES = ["सुरेश", "Suresh", "रमेश गुप्ता", "Ramesh Gupta"]
+
+
+def test_hindi_english_and_auto_keep_the_measured_hints():
+    for lang in ("hi", "en", "auto", None):
+        terms = hint_terms(lang, NAMES)
+        assert terms[:4] == NAMES and "उधार" in terms and "udhaar" in terms
+
+
+def test_other_languages_get_their_own_words_and_names_in_their_script():
+    terms = hint_terms("kn", NAMES)
+    assert terms[0] == "ಉದ್ರಿ" and "ಸಾಲ" in terms
+    assert "ಸುರೇಶ" in terms and "ರಮೇಶ ಗುಪ್ತಾ" in terms and "Suresh" in terms
+    assert not any("ऀ" <= ch <= "ॿ" for term in terms for ch in term)   # no Devanagari
+
+
+def test_a_script_that_cannot_spell_a_name_keeps_the_latin_spelling():
+    terms = hint_terms("ta", ["घनश्याम", "Ghanshyam", "सुरेश", "Suresh"])   # Tamil has no gha
+    assert "Ghanshyam" in terms and "Suresh" in terms
+    assert all(term.isascii() or "஀" <= term[0] <= "௿" for term in terms)
+
+
+def test_marathi_keeps_devanagari_names():
+    assert "सुरेश" in hint_terms("mr", NAMES) and "हिशोब" in hint_terms("mr", NAMES)
+
+
+async def test_session_language_reaches_the_keyterms_header(mock_gnani):
+    settings, seen = mock_gnani
+    stt = GnaniSTT(settings, lambda e: asyncio.sleep(0), "kn", NAMES)
+    await stt.connect()
+    await stt.close()
+    sent = json.loads(seen["stt_headers"]["keyterms"])
+    assert seen["stt_headers"]["language_code"] == "kn-IN"
+    assert "ಉದ್ರಿ" in sent and "उधार" not in sent and "सुरेश" not in sent

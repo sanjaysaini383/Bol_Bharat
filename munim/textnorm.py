@@ -250,6 +250,30 @@ _ENGLISH = {key(w) for w in (
 ).split()}
 
 
+# The Indic Unicode blocks share one layout, so a Devanagari letter moves to
+# another script by a fixed offset. Tamil is left out: it spells names with a
+# smaller alphabet, so an offset copy is not how a Tamil reader writes them.
+_SCRIPT_BASE = {"bn": 0x0980, "pa": 0x0A00, "gu": 0x0A80, "te": 0x0C00, "kn": 0x0C80,
+                "ml": 0x0D00}
+
+
+def to_script(text: str, lang: str) -> str | None:
+    """Devanagari text re-spelled in ``lang``'s script, or None if that script
+    has no such letter."""
+    base = _SCRIPT_BASE.get(lang)
+    if base is None:
+        return None
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if 0x0900 <= code <= 0x097F:
+            ch = chr(code - 0x0900 + base)
+            if unicodedata.category(ch) == "Cn":       # unassigned in that script
+                return None
+        out.append(ch)
+    return "".join(out)
+
+
 def detect_lang(text: str, hint: str | None = None) -> str:
     """Reply language for a transcript.
 
