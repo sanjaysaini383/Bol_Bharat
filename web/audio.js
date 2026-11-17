@@ -115,7 +115,11 @@ export class Player {
 
 // Short confirmation tones: heard without looking at the screen.
 export function earcon(ctx, kind) {
-  const tones = { saved: [660, 880], ask: [520, 520], error: [300, 220], start: [440] }[kind];
+  // payment (money in) rises high; credit (money owed) steps down.
+  const tones = {
+    saved: [660, 880], payment: [660, 990, 1320], credit: [660, 495],
+    ask: [520, 520], error: [300, 220], start: [440],
+  }[kind];
   if (!tones) return;
   const t0 = ctx.currentTime;
   tones.forEach((f, i) => {

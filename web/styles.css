@@ -287,3 +287,40 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outli
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ------------------------------------------------- customer page (statement) */
+.row-item[data-id] { cursor: pointer; }
+.cust-head { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; }
+.cust-head h3 { margin-bottom: 2px; }
+.cust-head .fine { margin-top: 0; }
+.cust-head .amt { font: 600 24px var(--serif); text-align: right; }
+.cust-head .amt small { display: block; font: 500 11px var(--sans); color: var(--muted); letter-spacing: .04em; }
+.promise-line {
+  padding: 8px 10px; border-left: 3px solid var(--amber); background: var(--amber-soft);
+  border-radius: 4px; font-size: 13.5px; color: var(--ink-2);
+}
+.promise-line + .promise-line { margin-top: 6px; }
+.stmt-head, .stmt-row {
+  display: grid; grid-template-columns: 5.5em 1fr 5em; gap: 10px; align-items: baseline;
+}
+.stmt-head {
+  padding-bottom: 6px; border-bottom: 1px solid var(--ink);
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}
+.stmt-head span:nth-child(2), .stmt-row .what { text-align: right; }
+.stmt-head span:last-child, .stmt-row .bal { text-align: right; }
+.stmt { max-height: 42vh; overflow-y: auto; margin-top: 0; }
+.stmt-row { padding: 9px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14.5px; }
+.stmt-row .when { color: var(--muted); font-size: 13px; }
+.stmt-row .what { font-family: var(--serif); font-size: 16px; }
+.stmt-row .what.credit { color: var(--red); }
+.stmt-row .what.pay { color: var(--green); }
+.stmt-row .what small { font: 500 11px var(--sans); color: var(--muted); margin-left: 5px; }
+.stmt-row .bal { font-family: var(--mono); font-size: 13px; color: var(--ink-2); }
+
+/* -------------------------------------------------------- session figures */
+.stats {
+  padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--card);
+  font: 12.5px/1.5 var(--mono); color: var(--ink-2);
+}
+.ghost.link { display: block; text-align: center; text-decoration: none; color: inherit; }

@@ -118,12 +118,30 @@
     <p>“Ramesh ka 340 udhaar, kal 200 diya tha”</p>
     <p>“Nahi, 430” · “Hata do”</p>
     <p>“Ramesh ka total?” · “Aaj kitna udhaar gaya?”</p>
+    <p>“Ramesh ka khata sunao” · “Vaade batao”</p>
+    <p>Shor mein sunai na de: “Dobara bolo” · Bhool gaye: “Madad”</p>
     <p>Hands-free mein pehle “Munim ji” boliye.</p>
   </div>
+  <p id="stats" class="stats" hidden></p>
+  <a id="exportBtn" class="ghost link" href="api/export.csv" download>Khata download karein (CSV)</a>
   <button id="resetBtn" class="ghost">Demo data dobara load karein</button>
   <button id="purgeBtn" class="ghost">Saare transcripts mitayein</button>
   <p class="fine">Poora khata mitane ke liye boliye: “mera sara data delete karo”.<br>
      STT: Gnani Prisma v3.0 · TTS: Gnani Timbre v3.0</p>
+  <button class="ghost" data-close>Band karein</button>
+</dialog>
+
+<dialog id="custSheet" class="sheet">
+  <div class="cust-head">
+    <div>
+      <h3 id="custName"></h3>
+      <p id="custDetail" class="fine"></p>
+    </div>
+    <div id="custBal" class="amt"></div>
+  </div>
+  <div id="custPromises"></div>
+  <div class="stmt-head"><span>Tareekh</span><span>Udhaar / Jama</span><span>Baaki</span></div>
+  <div id="custRows" class="stmt"></div>
   <button class="ghost" data-close>Band karein</button>
 </dialog>
 

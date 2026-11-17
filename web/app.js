@@ -18,6 +18,8 @@ const state = {
   mode: 'ptt', lang: localStorage.getItem('munim.lang') || 'auto',
   holding: false, streaming: false, tab: 'customers', ledger: null,
   lastChanged: new Set(), loud: 0, retry: 0,
+  floor: 0.01,                 // running estimate of the room's noise level
+  ttfa: [], llmTurns: 0, bargeIns: 0,
 };
 
 let ctx = null, mic = null, player = null;
@@ -74,6 +76,8 @@ function renderLedger() {
     if (!L.customers.length) list.append(el('p', 'empty', 'Abhi koi grahak nahi. Bolkar pehli entry likhiye.'));
     for (const c of L.customers) {
       const row = el('div', 'row-item');
+      row.dataset.id = c.id;
+      row.addEventListener('click', () => openCustomer(c.id));
       if (state.lastChanged.has(c.name)) row.classList.add('flash');
       const left = el('div');
       const name = el('div', 'name', c.name);
@@ -130,7 +134,14 @@ function renderReply(m) {
     state.lastChanged.add(e.customer);
   }
   if (ctx) {
-    if (m.kind === 'entry') { earcon(ctx, 'saved'); navigator.vibrate?.(30); }
+    if (m.kind === 'entry') {
+      // Udhaar and jama sound different, so the direction is heard even
+      // when the spoken reply is lost in shop noise.
+      const kinds = new Set((m.entries || []).map((e) => e.kind));
+      const one = kinds.size === 1 ? [...kinds][0] : null;
+      earcon(ctx, one === 'CREDIT' ? 'credit' : one === 'PAYMENT' ? 'payment' : 'saved');
+      navigator.vibrate?.(one === 'PAYMENT' ? [25, 60, 25] : 30);
+    }
     else if (m.kind === 'ask') earcon(ctx, 'ask');
     else if (m.kind === 'refuse' || m.kind === 'reprompt') earcon(ctx, 'error');
   }
@@ -138,6 +149,45 @@ function renderReply(m) {
     $('reminderText').textContent = m.reminder.text;
     $('reminderSheet').showModal();
   }
+  if (m.statement) openCustomer(m.statement.id);
+}
+
+// One customer's page, like a page of the paper khata: every line with the
+// balance after it. Opened by voice ("Ramesh ka khata sunao") or by a tap.
+async function openCustomer(id) {
+  let c;
+  try {
+    const r = await fetch(`api/customer/${id}${qs}`);
+    if (!r.ok) return;
+    c = await r.json();
+  } catch (_) { return; }
+  $('custName').textContent = c.name;
+  $('custDetail').textContent = [c.spoken, c.descriptor, c.opt_in ? 'reminder OK' : null]
+    .filter(Boolean).join(' · ');
+  const bal = $('custBal');
+  bal.className = 'amt ' + (c.balance > 0 ? 'due' : c.balance < 0 ? 'adv' : 'zero');
+  bal.replaceChildren(rupee(c.balance),
+    el('small', '', c.balance > 0 ? 'BAAKI' : c.balance < 0 ? 'ADVANCE' : 'BARABAR'));
+  const promises = $('custPromises');
+  promises.replaceChildren();
+  for (const p of c.promises) {
+    promises.append(el('p', 'promise-line',
+      `Vaada: ${rupee(p.amount)}${p.due ? ' · ' + dayLabel(p.due, c.today) : ''}`));
+  }
+  const rows = $('custRows');
+  rows.replaceChildren();
+  if (!c.entries.length) rows.append(el('p', 'empty', 'Koi entry nahi.'));
+  for (const e of c.entries) {
+    const row = el('div', 'stmt-row');
+    const credit = e.kind === 'CREDIT';
+    const what = el('span', 'what ' + (credit ? 'credit' : 'pay'), (credit ? '+' : '−') + rupee(e.amount));
+    what.append(el('small', '', credit ? 'udhaar' : 'jama'));
+    row.append(el('span', 'when', dayLabel(e.date, c.today)), what,
+      el('span', 'bal', rupee(e.balance)));
+    rows.append(row);
+  }
+  const sheet = $('custSheet');
+  if (!sheet.open) sheet.showModal();
 }
 
 function renderMetrics(m) {
@@ -147,6 +197,24 @@ function renderMetrics(m) {
   if (m.brain_ms != null) parts.push(`samjha ${m.brain_ms}ms`);
   if (m.path) parts.push(m.path === 'llm' ? 'LLM' : 'rules');
   $('meta').textContent = parts.join(' · ');
+  if (m.ttfa_ms != null) {
+    state.ttfa.push(m.ttfa_ms);
+    if (m.path === 'llm') state.llmTurns += 1;
+    renderStats();
+  }
+}
+
+// Session figures for the menu: how fast the replies have been.
+function renderStats() {
+  const a = [...state.ttfa].sort((x, y) => x - y);
+  if (!a.length) return;
+  const sec = (ms) => (ms / 1000).toFixed(2) + 's';
+  const pick = (q) => a[Math.min(a.length - 1, Math.floor(q * a.length))];
+  $('stats').hidden = false;
+  $('stats').textContent =
+    `Is session mein ${a.length} jawab · suna → bola: median ${sec(pick(0.5))}, ` +
+    `sabse tez ${sec(a[0])}, sabse dheema ${sec(a[a.length - 1])} · ` +
+    `LLM ${state.llmTurns} · beech mein toka ${state.bargeIns} baar`;
 }
 
 // ---------------------------------------------------------------- websocket
@@ -182,7 +250,15 @@ function connect() {
         banner(m.speech ? '' :
           'Voice band hai: server par GNANI_API_KEY set nahi hai. Menu se likhkar try karein.');
         break;
-      case 'ledger': state.ledger = m.data; renderLedger(); break;
+      case 'ledger':
+        state.ledger = m.data;
+        renderLedger();
+        if (!state.linked) {            // a link like …/#c=3 opens that customer's page
+          state.linked = true;
+          const id = /^#c=(\d+)$/.exec(location.hash)?.[1];
+          if (id) openCustomer(id);
+        }
+        break;
       case 'state':
         if (m.phase === 'idle' && player?.playing) break;
         if (!(state.holding && m.phase !== 'listening')) setPhase(m.phase);
@@ -231,10 +307,16 @@ function onMicChunk(buf, level) {
     if (state.streaming) state.ws.send(buf);
     return;
   }
+  // Track the room's noise level: drop to any quieter block at once, creep
+  // up slowly, so speech does not raise it but a noisy street does.
+  state.floor = Math.min(level, state.floor * 1.003 + 1e-5);
   // Hands-free. While the agent is speaking the mic is not streamed (so it
   // never hears itself); loud speech over the reply counts as a barge-in.
+  // "Loud" is measured against the room, so shop noise alone does not
+  // cut the agent off.
   if (player.playing) {
-    state.loud = level > 0.09 ? state.loud + 1 : 0;
+    const loudAt = Math.min(0.35, Math.max(0.09, state.floor * 4));
+    state.loud = level > loudAt ? state.loud + 1 : 0;
     if (state.loud >= 5) {            // ~160 ms of sustained speech
       state.loud = 0;
       bargeIn();
@@ -250,6 +332,8 @@ function bargeIn() {
   if (player?.playing) {
     player.stop();                    // stop locally first: no network wait
     send({ type: 'interrupt' });
+    state.bargeIns += 1;
+    renderStats();
   }
 }
 
@@ -261,6 +345,7 @@ async function pttDown() {
   if (!state.speech) { state.holding = false; $('menuSheet').showModal(); $('typeInput').focus(); return; }
   if (state.mode === 'handsfree') { bargeIn(); state.holding = false; return; }
   if (!state.holding) return;         // released while the mic prompt was open
+  if (player.playing) { state.bargeIns += 1; renderStats(); }
   player.stop();
   send({ type: 'ptt_down' });
   for (const b of mic.takePreroll()) state.ws.send(b);
@@ -350,6 +435,8 @@ $('typeForm').addEventListener('submit', async (e) => {
   $('typeInput').value = '';
   $('menuSheet').close();
 });
+
+$('exportBtn').href = `api/export.csv${qs}`;
 
 $('resetBtn').addEventListener('click', async () => {
   if (!confirm('Poora khata mitakar demo data dobara load karein?')) return;
