@@ -151,6 +151,29 @@ docker run -p 8000:8000 -v munim-data:/data \
 Any host that gives HTTPS and WebSockets works (Render, Railway, Fly.io). Choose an India
 region to keep the round trip to Gnani short.
 
+#### Vercel
+
+The repo deploys to Vercel as is: `pyproject.toml` names the app (`munim.server:api`) and
+`vercel.json` runs it in Mumbai (`bom1`), close to Gnani.
+
+1. Import the GitHub repo in Vercel. Framework preset: FastAPI (detected).
+2. In **Settings → Environment Variables** add `GNANI_API_KEY`, `LLM_API_KEY` and an
+   `ACCESS_TOKEN`, then share the link as `https://<project>.vercel.app/?k=<token>`.
+   Leave `KHATA_ENC_KEY` and `DATA_DIR` unset.
+3. Deploy. `GET /api/health` should show `"speech": true` and `"storage": "temporary"`.
+
+What to expect on Vercel:
+
+- **The ledger is temporary.** Functions can only write to `/tmp`, so each function instance
+  keeps its own ledger, seeded with the demo customers, until the instance is recycled. A
+  second phone or a cold start may see a fresh ledger. Use Docker on Render, Railway or
+  Fly.io with a volume when the khata must persist.
+- **Voice sockets reconnect every 5 minutes** on the Hobby plan (the function time limit;
+  up to 800 s on Pro). The page reconnects within a second and carries on without
+  greeting again, but an open question ("udhaar ya jama?") and *hata do* history are lost.
+- Customer pages, the CSV download, *demo reset* and *purge* travel over the session's
+  own socket, so they always act on the ledger that session uses.
+
 ### First-run checklist
 
 The speech clients were checked against the live Gnani API on 2026-11-16, using Timbre audio
