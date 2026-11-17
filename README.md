@@ -21,7 +21,7 @@ Munim-ji is an AI assistant and says so in its first turn, in the user's languag
 | **Spoken corrections**: "nahi, 430" | Fixes amount, name, direction or date of the last entry. After a two-line entry, *"nahi, 430"* fixes the amount it sounds like (340, not 200). *"hata do"* removes the entry. |
 | **Two customers share a name** | Asks one short question: *"Kaun se? Doodh wale Ramesh Kumar ya Ramesh Gupta?"* Answer with a descriptor, a surname, or *"pehla / doosra"*. |
 | **Spoken answers within 2 s** | Queries are plain SQL and replies come from fixed templates, so no LLM is in the path. |
-| **Channel**: low-end Android or browser, push-to-talk or wake phrase | Installable PWA with no framework (about 20 KB of JS). Hold-to-talk, or hands-free with the wake phrase *"Munim ji"*. |
+| **Channel**: low-end Android or browser, push-to-talk or wake phrase | Installable PWA with no framework (about 25 KB of JS). Hold-to-talk, or hands-free with the wake phrase *"Munim ji"*. |
 
 Beyond the brief:
 
@@ -29,6 +29,20 @@ Beyond the brief:
 - **Tense-aware promises.** *"Ramesh kal 200 de dega"* is future tense, so it is noted as a promise and the balance does not change.
 - **Entries are never overwritten.** A correction strikes the old line through and adds a new one, like a paper khata. The Entries tab shows the audit trail.
 - **Ten languages.** Replies in Hindi, English, Kannada, Tamil, Telugu, Marathi, Bengali, Gujarati, Punjabi and Malayalam, following the language the user speaks.
+
+Built for a noisy counter:
+
+- **Measured under shop noise.** Spoken entries are mixed with customer chatter, traffic and a horn, then run through the real speech stack: 24/24 correct at 10 dB, 22/24 at 5 dB ([results](#audio-eval-under-shop-noise)).
+- **One hold is one utterance.** A pause mid-sentence makes the recogniser split *"340 udhaar … kal 200 diya tha"* in two. Everything heard while the button is down is joined before it is understood.
+- **A line with no name follows the last customer.** In hands-free mode, *"kal 200 diya tha"* said right after Suresh's entry goes to Suresh. It needs a cue (*kal*, *parso*, *aur*); a bare *"200 jama"* still gets the question *"kiske khate mein?"*.
+- **Said twice is not written twice.** People repeat themselves over noise. The same line within 90 seconds gets *"abhi likha hai. Ek aur likhun?"* instead of a second entry.
+- **"Dobara bolo" and "Madad".** The last reply is repeated on request, and help gives two examples in the user's language.
+- **Udhaar and jama sound different.** A falling tone for credit, a rising one for a payment, so the direction is heard even when the spoken reply is not.
+- **A customer's page by voice.** *"Ramesh ka khata sunao"* reads the last three lines and opens the page, with the balance after every line like a paper khata.
+- **Promises close themselves.** *"Vaade batao"* lists who promised to pay and when. When that payment arrives, the promise is marked kept.
+- **Barge-in that knows the room.** In hands-free mode, "loud enough to interrupt" is measured against the running noise level, so street noise alone does not cut the agent off.
+- **Speed on screen.** The menu shows the session's median, fastest and slowest time from end of speech to first audio.
+- **CSV export.** The whole khata downloads as a spreadsheet file for a backup or an accountant.
 
 ## Architecture
 
@@ -170,6 +184,11 @@ That check used synthetic speech. Before a demo, confirm with your own voice and
 | "Sunita reminder ke liye raazi hai" | Records reminder consent |
 | "Sunita ko reminder bhejo" | Prepares a polite reminder to share (only with consent) |
 | "Mera sara data delete karo" | Asks for confirmation, then wipes everything |
+| "Ramesh ka khata sunao" | Reads Ramesh's last three lines and opens his page |
+| "Vaade batao" · "Aaj kiska vaada hai?" | Lists open promises to pay |
+| "Dobara bolo" · "Kya bola?" | Repeats the last reply |
+| "Madad" | Says what you can say, with two examples |
+| The same entry again within 90 s | Asks *"Abhi likha hai. Ek aur likhun?"* |
 
 In hands-free mode, start with *"Munim ji"*. For eight seconds after a reply, and whenever
 Munim-ji has asked a question, the wake phrase is not needed.
@@ -193,14 +212,43 @@ Munim-ji has asked a question, the wake phrase is not needed.
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                         # 152 unit, conversation and protocol tests
+pytest                         # 202 unit, conversation, session and protocol tests
 python scripts/eval_text.py    # 40 scripted conversations, judged like the live test
+python scripts/eval_audio.py   # spoken entries under shop noise (uses Gnani credits once)
 ```
 
 Current result of the conversation eval (rules only, no LLM): **40 / 40** on exact amount,
 credit/payment direction and customer. These run on text, so they measure understanding,
-not speech recognition. For audio, build a set with `scripts/probe_stt.py` and
-`scripts/mix_noise.py` (mixes shop noise under a clean clip at a chosen SNR).
+not speech recognition.
+
+### Audio eval under shop noise
+
+`scripts/eval_audio.py` speaks 24 conversations with Timbre v3.0, mixes in shop noise
+(overlapping customer chatter, traffic rumble, a horn), streams them through Prisma v3.0 as
+push-to-talk holds with `language_code=indic-auto`, and scores the ledger. Run on 2026-11-17:
+
+| Noise | Conversations correct | Amounts exact | Wrong line written |
+|---|---|---|---|
+| None | 24 / 24 | 24 / 24 | 0 |
+| 10 dB SNR | 24 / 24 | 24 / 24 | 0 |
+| 5 dB SNR | 22 / 24 | 22 / 24 | 0 |
+| 0 dB SNR (noise as loud as the speech) | 7 / 24 | 7 / 24 | 1 |
+
+The cases cover *teen sau chaalis*, *three forty*, *dedh sau*, *saade chaar sau*, *sava do
+sau*, hard two-digit words (39, 67, 89), corrections, a shared name, a new customer, English,
+and one Kannada and one Marathi entry through the LLM. Full output, with every failure:
+[docs/audio-eval.md](docs/audio-eval.md).
+
+Read the table with two limits in mind. The speech is synthetic and comes from the same
+vendor as the recogniser, so real voices and phone microphones will score lower. And at 0 dB
+the recogniser starts writing down the background chatter. In all but one of those runs no
+wrong line reached the ledger: Munim-ji asked a question or did not write, which is the
+failure a shopkeeper can hear and retry. The eval also found bugs that are now fixed, such as *"sava do sau"* heard as
+*"सवाल 200"* and saved as 200.
+
+Speech and transcripts are cached under `eval/audio/` (git-ignored), so a re-run after a
+code change is free. For your own recordings use `scripts/probe_stt.py` and
+`scripts/mix_noise.py`.
 
 ## Project layout
 
@@ -229,3 +277,6 @@ tests/           pytest suite
 - Reply templates outside Hindi and English were not reviewed by native speakers.
 - One shop per server. There are no user accounts; protect a hosted demo with `ACCESS_TOKEN`.
 - New customer names reach the recogniser's `keyterms` at the next session start, not mid-session.
+- In **Auto** language mode under noise, Prisma sometimes writes Kannada or Marathi speech as Hindi words. Picking the language in the app avoids this.
+- Noise as loud as the speaker (0 dB) is beyond what the pipeline handles: 7 of 24 test conversations survive it.
+- The duplicate guard and the carry-over of a customer to a nameless line are per session and reset when the page reloads.
