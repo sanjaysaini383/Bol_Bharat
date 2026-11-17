@@ -102,7 +102,7 @@ for _ws, _m in (
 
 FRACMOD = {}
 for _ws, _d in (("saade sadhe saadhe sade साढ़े साढे", 0.5),
-                ("sava sawa savaa सवा", 0.25),
+                ("sava sawa savaa सवा sawal saval सवाल", 0.25),
                 ("paune pone paun पौने", -0.25)):
     for _w in _ws.split():
         FRACMOD[key(_w)] = _d
@@ -194,6 +194,11 @@ def _parse_span(toks: list[Tok], i: int) -> tuple[float, int]:
                 cur = 1 + v          # paune sau = 75, sava sau = 125
             elif nc[0] in ("u", "d") and nc[1] < 100:
                 cur = nc[1] + v      # saade teen = 3.5
+                j += 1
+            elif nc[0] == "d" and nc[1] % 100 == 0:
+                # The recogniser wrote part of it as digits: "sava 200" for
+                # "sava do sau" (225), "saade 2000" for 2500.
+                cur = nc[1] + v * _lowest_place(nc[1])
                 j += 1
             else:
                 break

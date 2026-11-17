@@ -15,6 +15,9 @@ CASES = {
     "dedh sau": [150], "dhai hazaar": [2500], "saade teen sau": [350],
     "sava sau": [125], "paune do sau": [175], "सवा दो सौ": [225],
     "saade paanch hazaar": [5500], "डेढ़ हज़ार": [1500],
+    # the recogniser wrote half of it as digits (seen in the 5 dB noise eval)
+    "सवाल 200 udhaar": [225], "sava 200": [225], "साढ़े 400": [450],
+    "paune 300": [275], "saade 2000": [2500], "sawal kya hai": [],
     # English
     "three-forty": [340], "three forty five": [345], "twelve fifty": [1250],
     "three hundred and forty five": [345], "two thousand": [2000],
