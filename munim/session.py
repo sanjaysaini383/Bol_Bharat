@@ -38,6 +38,9 @@ from .textnorm import tokenize
 log = logging.getLogger("munim.session")
 
 FOLLOW_UP_WINDOW_S = 8.0     # hands-free: no wake phrase needed right after a reply
+NO_SPEECH_WAIT_S = 3.0       # after release with nothing heard yet
+TAIL_WAIT_S = 1.2            # after release, for the last part of a split utterance
+CONTINUE_WINDOW_S = 12.0     # "kal 200 diya tha" this soon after an entry is the same customer
 
 
 class Session:
@@ -61,6 +64,11 @@ class Session:
         self._turn_lock = asyncio.Lock()
         self._heard = 0
         self._started = False
+        # Push-to-talk: one hold is one utterance. The server's VAD may close
+        # it early at a pause ("... 340 udhaar, <pause> kal 200 diya tha"), so
+        # transcripts that arrive while the button is down wait here.
+        self._held: list[dict] = []
+        self._speech_open = False            # speech_start seen, transcript still to come
 
     # ------------------------------------------------------------- transport
     async def send(self, payload: dict) -> None:
@@ -123,6 +131,7 @@ class Session:
         elif kind == "ptt_down":
             await self.interrupt()
             self.accepting = True
+            self._held, self._speech_open = [], False
         elif kind == "ptt_up":
             if self.mode == "ptt":
                 self.accepting = False
@@ -130,7 +139,10 @@ class Session:
             await self.send({"type": "state", "phase": "thinking"})
             if self.stt:
                 await self.stt.commit()
-                self._spawn(self._no_speech_watchdog(self._heard))
+                if self._held and not self._speech_open:
+                    self._flush_held()           # everything was already transcribed
+                else:
+                    self._spawn(self._no_speech_watchdog(self._heard))
         elif kind == "interrupt":
             await self.interrupt()
         elif kind == "text":
@@ -170,28 +182,49 @@ class Session:
         await self.send({"type": "state", "phase": "idle"})
 
     async def _no_speech_watchdog(self, heard: int) -> None:
-        await asyncio.sleep(3.0)
-        if self._heard == heard:            # nothing recognised: go back to idle
-            await self.send({"type": "state", "phase": "idle"})
+        await asyncio.sleep(TAIL_WAIT_S if self._held else NO_SPEECH_WAIT_S)
+        if self._heard == heard:            # nothing more was recognised
+            if self._held:
+                self._flush_held()
+            else:
+                await self.send({"type": "state", "phase": "idle"})
+
+    def _flush_held(self) -> None:
+        """Run one turn on everything heard during a push-to-talk hold."""
+        parts, self._held = self._held, []
+        if not parts:
+            return
+        text = " ".join(p["text"] for p in parts)
+        self._spawn(self._turn(text, parts[-1].get("detected_language_code"),
+                               parts[-1].get("latency")))
 
     # ------------------------------------------------------------ STT events
     async def _on_stt(self, e: dict) -> None:
         kind = e.get("type")
         if kind == "speech_start":
+            self._speech_open = True
             await self.send({"type": "state", "phase": "listening"})
         elif kind == "processing":
             await self.send({"type": "state", "phase": "thinking"})
         elif kind == "transcript":
             self._heard += 1
-            if self.accepting or self.t_end is None:
-                # The server's VAD closed the utterance while the mic was still
-                # open (hands-free, or a pause before releasing push-to-talk).
-                # The live API sends no ``processing`` event, so estimate the
-                # end of speech: the VAD waited min_silence_ms, then the STT
-                # took ``latency`` ms.
-                waited = (e.get("latency") or 0) + self.s.min_silence_ms
-                self.t_end = time.monotonic() - waited / 1000
+            self._speech_open = False
             text = (e.get("text") or "").strip()
+            if self.mode == "ptt":
+                if text:
+                    self._held.append({**e, "text": text})
+                if self.accepting:
+                    return                       # button still down: keep collecting
+                if self._held:
+                    self._flush_held()
+                else:
+                    await self.send({"type": "state", "phase": "idle"})
+                return
+            # Hands-free: the server's VAD ended the utterance. The live API
+            # sends no ``processing`` event, so estimate the end of speech: the
+            # VAD waited min_silence_ms, then the STT took ``latency`` ms.
+            waited = (e.get("latency") or 0) + self.s.min_silence_ms
+            self.t_end = time.monotonic() - waited / 1000
             if not text:
                 await self.send({"type": "state", "phase": "idle"})
                 return
@@ -220,8 +253,10 @@ class Session:
             if lang_hint and lang_hint.startswith("mr"):
                 hint = "mr"
             t0 = time.monotonic()
+            speaking = self._speak_task is not None and not self._speak_task.done()
+            followup = speaking or t0 - self.last_reply_at < CONTINUE_WINDOW_S
             try:
-                reply = await self.brain.handle(text, hint)
+                reply = await self.brain.handle(text, hint, followup=followup)
             except Exception:
                 log.exception("turn failed")
                 await self.send({"type": "error", "message": "Internal error"})
@@ -236,7 +271,8 @@ class Session:
 
     def _reply_payload(self, r: Reply) -> dict:
         return {"type": "reply", "text": r.text, "lang": r.lang, "kind": r.kind,
-                "path": r.path, "entries": r.entries, "reminder": r.reminder}
+                "path": r.path, "entries": r.entries, "reminder": r.reminder,
+                "statement": r.statement}
 
     # ---------------------------------------------------------------- speech
     def _speak(self, reply: Reply, stt_ms=None, brain_ms=None) -> None:
@@ -250,6 +286,7 @@ class Session:
         metrics = {"type": "metrics", "turn": turn, "stt_ms": stt_ms, "brain_ms": brain_ms,
                    "path": reply.path, "ttfa_ms": None}
         if self.tts is None:
+            self.last_reply_at = time.monotonic()
             await self.send(metrics)
             await self.send({"type": "state", "phase": "idle"})
             return

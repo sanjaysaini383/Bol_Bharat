@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import hmac
+import io
 import logging
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
@@ -94,6 +97,34 @@ async def health(request: Request):
 @api.get("/api/ledger")
 async def ledger(request: Request):
     return _app(request).ledger.snapshot()
+
+
+@api.get("/api/customer/{cid}")
+async def customer(cid: int, request: Request):
+    """One customer's page: every active line with the balance after it."""
+    led = _app(request).ledger
+    c = led.customer(cid)
+    if c is None:
+        raise HTTPException(404, "no such customer")
+    return {"id": c.id, "name": c.name, "spoken": c.spoken, "descriptor": c.descriptor,
+            "opt_in": c.opt_in, "balance": led.balance(c.id), "today": date.today().isoformat(),
+            "entries": led.statement(c.id),
+            "promises": [{"amount": amount, "due": due.isoformat() if due else None}
+                         for _, _, amount, due in led.open_promises(c.id)]}
+
+
+@api.get("/api/export.csv")
+async def export_csv(request: Request):
+    """The whole khata as a spreadsheet file, for a backup or an accountant."""
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["date", "customer", "type", "amount", "status", "recorded_at"])
+    for row in _app(request).ledger.export_rows():
+        # A name is free text: stop a spreadsheet from running it as a formula.
+        row[1] = "'" + row[1] if row[1][:1] in "=+-@" else row[1]
+        w.writerow(row)
+    return Response("\ufeff" + out.getvalue(), media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="khata-{date.today().isoformat()}.csv"'})
 
 
 @api.post("/api/demo/reset")
