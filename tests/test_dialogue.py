@@ -294,3 +294,13 @@ async def test_promises_are_listed_closed_by_a_payment_and_restored_by_undo(brai
     assert seeded.open_promises() == []
     await brain.handle("hata do")
     assert [amount for _, _, amount, _ in seeded.open_promises()] == [200]
+
+
+async def test_names_are_spoken_in_the_script_of_the_reply(seeded):
+    b = Brain(seeded, today=lambda: TODAY)
+    r = await b.handle("ಸುರೇಶ್ ಗೆ 300 ರೂಪಾಯಿ ಸಾಲ ಬರೆಯಿರಿ.", "kn")     # as Prisma writes it
+    assert r.lang == "kn" and r.kind == "entry" and r.path == "rules"
+    assert "ಸುರೇಶ: 300 ಉದ್ರಿ" in r.text and "सुरेश" not in r.text
+    assert bal(seeded, "Suresh") == 300
+    r = await b.handle("Suresh paid 100 rupees")
+    assert r.lang == "en" and "Suresh: 100 paid" in r.text and "सुरेश" not in r.text

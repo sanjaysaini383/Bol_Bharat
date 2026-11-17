@@ -25,7 +25,7 @@ from .guardrails import reminder_allowed
 from .ledger import ACTIVE, CORRECTED, CREDIT, PAYMENT, UNDONE, Customer, Ledger, tok_match
 from .parser import Draft, Parse, parse
 from .replies import balance_tail, date_prefix, help_text, say, when
-from .textnorm import detect_lang, romanize
+from .textnorm import detect_lang, romanize, to_script
 
 log = logging.getLogger("munim.dialogue")
 
@@ -105,12 +105,25 @@ class Brain:
         lang = detect_lang(text, lang_hint or self.lang)
         self.lang = lang
         reply = await self._handle(text, lang, followup)
+        reply.text = self._names_for(reply.text, reply.lang)
         self.last_reply = reply
         if lang not in self.disclosed:
             # A new language counts as a first turn: disclose again in it.
             self.disclosed.add(lang)
             reply.text = f"{say(lang, 'disclose')} {reply.text}"
         return reply
+
+    def _names_for(self, text: str, lang: str) -> str:
+        """Customer names as the listener reads them: Latin in an English
+        reply, the reply's own script elsewhere (names are stored in Devanagari)."""
+        if lang in ("hi", "mr"):
+            return text
+        for c in sorted(self.ledger.customers(), key=lambda c: -len(c.spoken or "")):
+            if c.spoken and c.spoken in text:
+                shown = c.name if lang == "en" else to_script(c.spoken, lang)
+                if shown:
+                    text = text.replace(c.spoken, shown)
+        return text
 
     # --------------------------------------------------------------- routing
     async def _handle(self, text: str, lang: str, followup: bool = False) -> Reply:
