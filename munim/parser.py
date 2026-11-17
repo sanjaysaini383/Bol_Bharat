@@ -25,12 +25,13 @@ def K(words: str) -> set[str]:
     return {key(w) for w in words.split()}
 
 
-POSTPOS = K("ka ke ki ko ne se का के की को ने से")
+POSTPOS = K("ka ke ki ko ne se का के की को ने से "
+            "ला")        # Marathi "to": "सुनीता ला 500 उधार" is Sunita, not "Sunita La"
 CREDIT_STRONG = K(
     "udhaar udhar udhari udhaari उधार उधारी credit क्रेडिट baaki baki बाकी bakaya बकाया "
     "saamaan saman samaan सामान owes owe due lena lene लेना लेने khate khaate खाते "
     # other languages: Kannada udri, Tamil kadan, Telugu appu, Malayalam kadam, Bengali dhar
-    "udri ಉದ್ರಿ kadan கடன் appu అప్పు kadam കടം dhar ধার udhaari")
+    "udri ಉದ್ರಿ saala ಸಾಲ kadan கடன் appu అప్పు kadam കടം dhar ধার udhaari")
 CREDIT_WEAK = K("likho likh likhna likhiye लिखो लिख chadha chadhao jodo jod add note")
 PAYMENT_STRONG = K(
     "jama जमा payment पेमेंट paid pay chukaya chuka chukta चुकाया चुकता wapas vapas वापस "
@@ -83,6 +84,16 @@ INTEREST = K("byaaj byaj ब्याज interest sood सूद loan लोन 
              "penalty jurmana जुर्माना finance")
 THREAT = K("dhamki dhamkao dhamka धमकी धमकाओ threat threaten darao dara डराओ police पुलिस "
            "badnaam beizzati legal court notice kadak sakht warning chetavni gaali")
+REPEAT = K("dobara dubara dobaara दोबारा dohrao dohraiye दोहराओ दोहराइए repeat again "
+           "pardon firse phirse")
+SPEAK = K("bolo boliye bol kaho kahiye kaha bola sunao sunaiye batao bataiye बोलो बोलिए "
+          "कहो कहा बोला सुनाओ बताओ say tell")
+HELP = K("madad मदद help हेल्प sahayata सहायता sikhao सिखाओ")
+STATEMENT = K("khata khaata खाता khate खाते entries entry एंट्री एंट्रियां statement "
+              "स्टेटमेंट history हिस्ट्री details detail डिटेल byora ब्योरा passbook lenden")
+SHOW = K("sunao sunaiye सुनाओ सुनाइए dikhao dikhaiye दिखाओ दिखाइए kholo खोलो batao bataiye "
+         "बताओ बताइए padho पढ़ो show open read tell")
+PROMISE_Q = K("vaada vada wada vaade vade waade वादा वादे vayda वायदा promise promises")
 WALE = K("wale wala wali vale vala vali वाले वाला वाली")
 HONORIFIC = K("ji जी bhai भाई bhaiya bhaiyya भैया sahab saab sahib साहब seth सेठ uncle "
               "aunty chacha chachi didi दीदी madam sir bhabhi babu")
@@ -103,7 +114,8 @@ KNOWN = (POSTPOS | CREDIT_STRONG | CREDIT_WEAK | PAYMENT_STRONG | GIVE | TAKE | 
          | PAST | VERB_STEMS | AUX_AFTER_STEM | TODAY | KAL | YESTERDAY | TOMORROW | PARSO
          | DIN | AGO | LATER | WEEK | MONTH | LAST | QUERY | WHO | ALL | Q_PAYMENT
          | REMINDER | ALLOW | DENY | SEND | UNDO | DATA | NEG | YES | set(ORDINAL)
-         | INTEREST | THREAT | WALE | WAKE | FILLER)
+         | INTEREST | THREAT | WALE | WAKE | FILLER | REPEAT | SPEAK | HELP | STATEMENT
+         | SHOW | PROMISE_Q)
 
 SEP_WORDS = K("aur और and phir fir lekin par magar")
 
@@ -134,6 +146,8 @@ class Parse:
     ordinal: int | None = None
     confidence: float = 1.0
     source: str = "rules"
+    continues: bool = False             # "aur ...", "kal ...": adds to the previous entry
+    base_confidence: float = 1.0        # confidence before the missing-name penalty
 
 
 # --------------------------------------------------------------------------
@@ -353,9 +367,13 @@ def _entry(toks: list[Tok]) -> Parse:
                 first = drafts[0]
                 first.name, first.name_keys, first.descriptor = d.name, d.name_keys, d.descriptor
                 break
+    base = conf
     if any(not d.name_keys for d in drafts):
         conf = min(conf, 0.5)
-    return Parse("entry", drafts=drafts, confidence=conf)
+    first = next((t for t in toks if t.kind == "word"), None)
+    continues = (first is not None and first.key in SEP_WORDS) or         any(d.day_offset != 0 for d in drafts)
+    return Parse("entry", drafts=drafts, confidence=conf, continues=continues,
+                 base_confidence=base)
 
 
 def _query(toks: list[Tok], s: set[str]) -> Parse:
@@ -403,6 +421,15 @@ def parse(text: str) -> Parse:
         rnums = [t for t in rest if t.kind == "num"]
         direction = _only_direction(rs) or (
             "payment" if rs & GIVE else "credit" if rs & TAKE else None)
+        if direction is None:
+            # Both were said ("udhaar nahi, jama"): the last one is the fix.
+            for tk in reversed(rest):
+                if tk.kind == "word" and tk.key in PAYMENT_STRONG:
+                    direction = "payment"
+                    break
+                if tk.kind == "word" and tk.key in CREDIT_STRONG:
+                    direction = "credit"
+                    break
         offset = None
         if rs & (KAL | PARSO | TODAY | YESTERDAY):
             offset = min(_day_offset(rest, False)[0], 0)
@@ -415,10 +442,29 @@ def parse(text: str) -> Parse:
     if s & UNDO and not nums:
         return Parse("undo")
 
+    if not nums:
+        # "dobara bolo", "phir se boliye", "kya bola?", "repeat"
+        again = s & REPEAT or (s & K("phir fir फिर") and key("se") in s)
+        if (again and not s & CREDIT_WEAK and (s & SPEAK or len(words) <= 3)) or                 (s & K("kya क्या what") and s & K("bola kaha बोला कहा said")):
+            return Parse("repeat")
+        if s & HELP or (s & K("kya क्या kaise कैसे what how") and s & K(
+                "sakta sakti sakte सकता सकती सकते")):
+            return Parse("help")
+        if s & PROMISE_Q and not s & FUTURE:
+            return Parse("query", query="promises")
+
     if s & REMINDER:
         name, keys, desc = _name_from(toks)
         intent = "optout" if s & DENY else "optin" if s & (ALLOW - SEND) else "reminder"
         return Parse(intent, name=name, name_keys=keys, descriptor=desc)
+
+    if not nums and s & STATEMENT and (s & SHOW or not s & (QUERY | WHO)):
+        # "Ramesh ka khata sunao", "Sunita ki entries dikhao"
+        name, keys, desc = _name_from(toks)
+        if keys:
+            return Parse("query", query="statement", name=name, name_keys=keys,
+                         descriptor=desc)
+        return _query(toks, s)                     # "sabka khata dikhao": the total
 
     if not nums and (s & (QUERY | WHO) or (s & K("baaki baki बाकी bakaya hisaab hisab"))):
         return _query(toks, s)

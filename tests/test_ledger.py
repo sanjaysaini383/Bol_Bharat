@@ -84,7 +84,7 @@ def test_reminder_gate():
 
 def test_all_languages_have_all_reply_keys():
     for lang, table in T.items():
-        assert set(table) == set(T["hi"]), lang
+        assert set(table) | {"help"} == set(T["hi"]), lang    # "help" is composed if absent
 
 
 # ---- LLM output validation --------------------------------------------------
@@ -102,3 +102,43 @@ def test_llm_cannot_date_a_payment_in_the_future_or_invent_intents():
         {"customer": "Ramesh", "amount": 200, "direction": "payment", "day_offset": 3}]}
     assert to_parse(data, "Ramesh 200").drafts[0].day_offset == 0
     assert to_parse({"intent": "transfer_money"}, "x") is None
+
+
+def test_help_exists_in_every_language():
+    from munim.replies import help_text
+    for lang in T:
+        assert "340" in help_text(lang) and "200" in help_text(lang), lang
+
+
+def test_statement_has_running_balance_newest_first(ledger):
+    from datetime import date
+    c = ledger.add_customer("Suresh", "सुरेश")
+    ledger.add_entry(c.id, "CREDIT", 300, date(2026, 11, 14))
+    ledger.add_entry(c.id, "PAYMENT", 100, date(2026, 11, 15))
+    gone = ledger.add_entry(c.id, "CREDIT", 999, date(2026, 11, 15))
+    ledger.set_status([gone.id], "UNDONE")
+    ledger.add_entry(c.id, "CREDIT", 40, date(2026, 11, 16))
+    rows = ledger.statement(c.id)
+    assert [(r["kind"], r["amount"], r["balance"]) for r in rows] == [
+        ("CREDIT", 40, 240), ("PAYMENT", 100, 200), ("CREDIT", 300, 300)]
+    assert rows[0]["balance"] == ledger.balance(c.id)
+
+
+def test_export_rows_cover_every_line(ledger):
+    from datetime import date
+    c = ledger.add_customer("Suresh", "सुरेश")
+    ledger.add_entry(c.id, "CREDIT", 300, date(2026, 11, 14))
+    e = ledger.add_entry(c.id, "PAYMENT", 100, date(2026, 11, 15))
+    ledger.set_status([e.id], "UNDONE")
+    rows = ledger.export_rows()
+    assert [r[:5] for r in rows] == [["2026-11-14", "Suresh", "CREDIT", 300, "ACTIVE"],
+                                     ["2026-11-15", "Suresh", "PAYMENT", 100, "UNDONE"]]
+
+
+def test_payment_closes_the_promises_it_covers(ledger):
+    from datetime import date
+    c = ledger.add_customer("Suresh", "सुरेश")
+    a = ledger.add_promise(c.id, 200, date(2026, 11, 17))
+    b = ledger.add_promise(c.id, 500, None)
+    assert ledger.keep_promises(c.id, 250) == [a]
+    assert [pid for pid, *_ in ledger.open_promises()] == [b]

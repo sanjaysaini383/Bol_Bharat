@@ -217,6 +217,28 @@ class Ledger:
                                  [(status, e) for e in entry_ids])
             self._db.commit()
 
+    def statement(self, cid: int, limit: int = 50) -> list[dict]:
+        """A customer's active lines, newest first, each with the balance after it."""
+        rows = self._db.execute(
+            "SELECT id, kind, amount, txn_date, created_at FROM entries"
+            " WHERE customer_id=? AND status='ACTIVE' ORDER BY txn_date, id", (cid,)).fetchall()
+        out, running = [], 0
+        for r in rows:
+            running += r["amount"] if r["kind"] == CREDIT else -r["amount"]
+            out.append({"id": r["id"], "kind": r["kind"], "amount": r["amount"],
+                        "date": r["txn_date"], "at": r["created_at"], "balance": running})
+        return out[::-1][:limit]
+
+    def export_rows(self) -> list[list]:
+        """Every ledger line for a CSV backup, oldest first."""
+        out = []
+        for r in self._db.execute(
+                "SELECT e.*, c.name AS cname FROM entries e JOIN customers c"
+                " ON c.id = e.customer_id ORDER BY e.txn_date, e.id"):
+            out.append([r["txn_date"], self._box.open(r["cname"]) or "", r["kind"],
+                        r["amount"], r["status"], r["created_at"]])
+        return out
+
     def entry_count(self, cid: int) -> int:
         return self._db.execute("SELECT COUNT(*) FROM entries WHERE customer_id=?",
                                 (cid,)).fetchone()[0]
@@ -264,10 +286,36 @@ class Ledger:
             return cur.lastrowid
 
     def void_promises(self, ids: list[int]) -> None:
+        self.set_promise_status(ids, "UNDONE")
+
+    def set_promise_status(self, ids: list[int], status: str) -> None:
         with self._lock:
-            self._db.executemany("UPDATE promises SET status='UNDONE' WHERE id=?",
-                                 [(i,) for i in ids])
+            self._db.executemany("UPDATE promises SET status=? WHERE id=?",
+                                 [(status, i) for i in ids])
             self._db.commit()
+
+    def open_promises(self, cid: int | None = None) -> list[tuple[int, Customer, int, date | None]]:
+        """Promises still waiting, soonest first: (id, customer, amount, due)."""
+        out = []
+        for r in self._db.execute(
+                "SELECT * FROM promises WHERE status='ACTIVE' ORDER BY "
+                "COALESCE(due_date,'9999'), id"):
+            c = self._cache.get(r["customer_id"])
+            if c and (cid is None or c.id == cid):
+                due = date.fromisoformat(r["due_date"]) if r["due_date"] else None
+                out.append((r["id"], c, int(r["amount"]), due))
+        return out
+
+    def keep_promises(self, cid: int, paid: int) -> list[int]:
+        """A payment came in: close the customer's promises it covers."""
+        kept = []
+        for pid, _, amount, _ in self.open_promises(cid):
+            if amount > paid:
+                break
+            paid -= amount
+            kept.append(pid)
+        self.set_promise_status(kept, "KEPT")
+        return kept
 
     # ---------------------------------------------------------- transcripts
     def log_utterance(self, text: str, lang: str) -> int:

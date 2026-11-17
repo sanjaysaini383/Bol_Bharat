@@ -63,6 +63,9 @@ def test_honorific_is_not_part_of_the_key():
     ("nahi, 430", 430, None, False),
     ("nahi nahi, char sau tees", 430, None, False),
     ("nahi, jama tha", None, "payment", False),
+    ("nahi, udhaar nahi, jama", None, "payment", False),
+    ("nahi, jama nahi, udhaar tha", None, "credit", False),
+    ("नहीं, बाकी जमा।", None, "payment", False),          # heard at 5 dB for "jama tha"
     ("galat, Suresh", None, None, True),
     ("no, 430", 430, None, False),
     ("ಇಲ್ಲ, 430", 430, None, False),
@@ -100,3 +103,36 @@ def test_queries(text, query, period):
 ])
 def test_intents(text, intent):
     assert parse(text).intent == intent
+
+
+# ---------------------------------------------------- found by the audio eval
+def test_marathi_la_is_a_postposition_not_part_of_the_name():
+    d = parse("सुनीता ला 500 रुपये udhaar दिले.").drafts[0]
+    assert (d.name_keys, d.amount, d.direction) == (["sunita"], 500, "credit")
+
+
+@pytest.mark.parametrize("text,intent,query", [
+    ("dobara bolo", "repeat", None), ("phir se boliye", "repeat", None),
+    ("kya bola?", "repeat", None), ("फिर से बोलो", "repeat", None),
+    ("madad", "help", None), ("kya bol sakta hoon", "help", None),
+    ("Ramesh ka khata sunao", "query", "statement"),
+    ("सुनीता की एंट्री दिखाओ", "query", "statement"),
+    ("sabka khata dikhao", "query", "total_outstanding"),
+    ("vaade batao", "query", "promises"), ("aaj kiska vaada hai", "query", "promises"),
+    # look-alikes that must stay what they were
+    ("Ramesh ke khate mein 200 likho", "entry", None),
+    ("phir se 200 likho", "entry", None),
+    ("Ramesh kal 200 de dega", "entry", None),
+    ("Ramesh ka total", "query", "customer_balance"),
+])
+def test_noisy_counter_intents(text, intent, query):
+    p = parse(text)
+    assert (p.intent, p.query) == (intent, query)
+
+
+@pytest.mark.parametrize("text,continues", [
+    ("kal 200 diya tha", True), ("aur 50 ka doodh", True), ("parso 100 diye the", True),
+    ("200 jama", False), ("Suresh ka 340 udhaar", False),
+])
+def test_continuation_cue(text, continues):
+    assert parse(text).continues is continues

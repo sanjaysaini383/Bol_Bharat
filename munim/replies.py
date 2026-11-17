@@ -388,6 +388,48 @@ T["ml"] = {
 }
 
 
+# Added after the first ten: duplicate guard, promises, help.
+_MORE = {
+    "hi": {"ask_dup": "{name} का {amt} {kind} अभी लिखा है। एक और लिखूँ?",
+           "q_no_promises": "कोई वादा नोट नहीं है।", "say_word": "बोलिए",
+           "help": "बोलिए: रमेश का 340 उधार। या, सुनीता ने 200 दिए। गलती हो तो: नहीं, 430। "
+                   "पूछने के लिए: रमेश का टोटल।"},
+    "en": {"ask_dup": "{name}, {amt} {kind} was just noted. Add it again?",
+           "q_no_promises": "No promises are noted.", "say_word": "Say",
+           "help": "Say: Ramesh 340 credit. Or: Sunita paid 200. To fix a mistake: no, 430. "
+                   "To ask: Ramesh's total."},
+    "mr": {"ask_dup": "{name}, {amt} {kind} आत्ताच लिहिले आहे. पुन्हा लिहू?",
+           "q_no_promises": "कोणतेही वचन नोंदलेले नाही.", "say_word": "बोला"},
+    "kn": {"ask_dup": "{name}, {amt} {kind} ಈಗಷ್ಟೇ ಬರೆದಿದೆ. ಮತ್ತೊಮ್ಮೆ ಬರೆಯಲೇ?",
+           "q_no_promises": "ಯಾವುದೇ ವಾಗ್ದಾನ ದಾಖಲಾಗಿಲ್ಲ.", "say_word": "ಹೇಳಿ"},
+    "ta": {"ask_dup": "{name}, {amt} {kind} இப்போதுதான் எழுதப்பட்டது. மறுபடியும் எழுதவா?",
+           "q_no_promises": "எந்த வாக்குறுதியும் பதிவாகவில்லை.", "say_word": "சொல்லுங்கள்"},
+    "te": {"ask_dup": "{name}, {amt} {kind} ఇప్పుడే రాశాను. మళ్ళీ రాయనా?",
+           "q_no_promises": "ఏ వాగ్దానమూ నమోదు కాలేదు.", "say_word": "చెప్పండి"},
+    "bn": {"ask_dup": "{name}, {amt} {kind} এইমাত্র লেখা হয়েছে। আবার লিখব?",
+           "q_no_promises": "কোনো প্রতিশ্রুতি নোট করা নেই।", "say_word": "বলুন"},
+    "gu": {"ask_dup": "{name}, {amt} {kind} હમણાં જ લખ્યું છે. ફરી લખું?",
+           "q_no_promises": "કોઈ વાયદો નોંધાયેલ નથી.", "say_word": "બોલો"},
+    "pa": {"ask_dup": "{name}, {amt} {kind} ਹੁਣੇ ਲਿਖਿਆ ਹੈ। ਦੁਬਾਰਾ ਲਿਖਾਂ?",
+           "q_no_promises": "ਕੋਈ ਵਾਅਦਾ ਦਰਜ ਨਹੀਂ ਹੈ।", "say_word": "ਬੋਲੋ"},
+    "ml": {"ask_dup": "{name}, {amt} {kind} ഇപ്പോൾ എഴുതിയതാണ്. വീണ്ടും എഴുതണോ?",
+           "q_no_promises": "ഒരു വാഗ്ദാനവും രേഖപ്പെടുത്തിയിട്ടില്ല.", "say_word": "പറയൂ"},
+}
+for _lang, _keys in _MORE.items():
+    T[_lang].update(_keys)
+
+
+def help_text(lang: str) -> str:
+    """What to say, in the user's language. Built from the reply words the
+    parser also understands, so every language gets a usable example."""
+    table = T.get(lang) or T["hi"]
+    if "help" in table:
+        return table["help"]
+    stop = "।" if lang in ("bn", "pa") else "."
+    return (f"{say(lang, 'say_word')}: Ramesh {say(lang, 'credit', amt=340)}{stop} "
+            f"Sunita {say(lang, 'payment', amt=200)}{stop}")
+
+
 def say(lang: str, k: str, **kw) -> str:
     table = T.get(lang) or T["hi"]
     template = table.get(k) or T["hi"][k]
