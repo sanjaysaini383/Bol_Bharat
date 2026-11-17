@@ -8,25 +8,29 @@ Built for a counter in rush hour:
   two customers share the name, the direction was not said, the name is
   close to an existing one, or the amount is unusually large.
 * The ledger is only ever changed by code in this file, never by the LLM.
+* A noisy counter makes people repeat themselves, so the same line said
+  twice within a minute and a half is questioned, not written twice.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from difflib import SequenceMatcher
 from typing import Callable
 
 from .guardrails import reminder_allowed
-from .ledger import CORRECTED, CREDIT, PAYMENT, UNDONE, Customer, Ledger, tok_match
+from .ledger import ACTIVE, CORRECTED, CREDIT, PAYMENT, UNDONE, Customer, Ledger, tok_match
 from .parser import Draft, Parse, parse
-from .replies import balance_tail, date_prefix, say, when
+from .replies import balance_tail, date_prefix, help_text, say, when
 from .textnorm import detect_lang, romanize
 
 log = logging.getLogger("munim.dialogue")
 
 RULE_LANGS = {"hi", "en"}
+DUP_WINDOW_S = 90.0          # the same line again within this time is questioned
 _DANDA_LANGS = {"hi", "bn", "pa"}
 
 
@@ -43,6 +47,7 @@ class Reply:
     changed: bool = False           # ledger was modified
     entries: list[dict] = field(default_factory=list)
     reminder: dict | None = None
+    statement: dict | None = None   # customer whose page the screen should open
 
 
 @dataclass
@@ -59,12 +64,14 @@ class Batch:
     keep: list[int] = field(default_factory=list)   # untouched lines of a corrected batch
     utterance_id: int | None = None
     asks: int = 0
+    dup_ok: bool = False            # the user confirmed a repeated line
 
 
 class Brain:
     def __init__(self, ledger: Ledger, llm=None, default_lang: str = "hi",
                  big_amount: int = 20000, shop_name: str = "Kirana Store",
-                 today: Callable[[], date] = date.today, log_transcripts: bool = True):
+                 today: Callable[[], date] = date.today, log_transcripts: bool = True,
+                 clock: Callable[[], float] = time.monotonic):
         self.ledger = ledger
         self.llm = llm
         self.lang = default_lang
@@ -75,6 +82,10 @@ class Brain:
         self.pending: dict | None = None
         self.history: list[dict] = []        # undo stack
         self.disclosed: set[str] = set()
+        self.clock = clock
+        self.last_reply: Reply | None = None
+        self._recent: list[tuple[float, int]] = []   # (when, entry id) for the duplicate guard
+        self._last_cid: int | None = None            # customer of the last saved utterance
 
     # ------------------------------------------------------------ public API
     def greeting(self, lang: str | None = None) -> Reply:
@@ -87,10 +98,14 @@ class Brain:
     def awaiting_answer(self) -> bool:
         return self.pending is not None
 
-    async def handle(self, text: str, lang_hint: str | None = None) -> Reply:
+    async def handle(self, text: str, lang_hint: str | None = None,
+                     followup: bool = False) -> Reply:
+        """``followup``: this came right after the previous reply, so a line
+        with no name ("kal 200 diya tha") may belong to the same customer."""
         lang = detect_lang(text, lang_hint or self.lang)
         self.lang = lang
-        reply = await self._handle(text, lang)
+        reply = await self._handle(text, lang, followup)
+        self.last_reply = reply
         if lang not in self.disclosed:
             # A new language counts as a first turn: disclose again in it.
             self.disclosed.add(lang)
@@ -98,12 +113,20 @@ class Brain:
         return reply
 
     # --------------------------------------------------------------- routing
-    async def _handle(self, text: str, lang: str) -> Reply:
+    async def _handle(self, text: str, lang: str, followup: bool = False) -> Reply:
         p = parse(text)
         if p.intent == "empty":
             return Reply(say(lang, "reprompt"), lang, "reprompt")
         if p.intent in ("refuse_threat", "refuse_interest"):
             return Reply(say(lang, p.intent), lang, "refuse")
+        if p.intent == "repeat":                   # shop noise drowned the reply
+            last = self.last_reply
+            if last is None:
+                return Reply(say(lang, "greet"), lang, "info")
+            return Reply(last.text, last.lang, "ask" if self.pending else "info",
+                         reminder=last.reminder, statement=last.statement)
+        if p.intent == "help":
+            return Reply(help_text(lang), lang, "info")
 
         uid = self.ledger.log_utterance(text, lang) if self.log_transcripts else None
 
@@ -112,15 +135,23 @@ class Brain:
             if r is not None:
                 return r
 
+        # "Suresh ka 340 udhaar" ... "kal 200 diya tha": same customer.
+        carry = None
+        if followup and p.intent == "entry" and p.continues and self._last_cid \
+                and not any(d.name_keys for d in p.drafts):
+            carry = self.ledger.customer(self._last_cid)
+            if carry is not None:
+                p.confidence = p.base_confidence
+
         path = "rules"
-        if self._needs_llm(p, lang):
+        if carry is None and self._needs_llm(p, lang):
             p2 = await self.llm.parse(text, self.today().isoformat())
             if p2 is not None:
                 p, path = p2, "llm"
         if p.intent in ("refuse_threat", "refuse_interest"):
             return Reply(say(lang, p.intent), lang, "refuse", path)
 
-        r = self._dispatch(p, lang, uid)
+        r = self._dispatch(p, lang, uid, carry)
         r.path = path
         return r
 
@@ -143,9 +174,13 @@ class Brain:
                            for d in p.drafts)
         return True
 
-    def _dispatch(self, p: Parse, lang: str, uid: int | None) -> Reply:
+    def _dispatch(self, p: Parse, lang: str, uid: int | None,
+                  carry: Customer | None = None) -> Reply:
         if p.intent == "entry":
-            return self._run(Batch(p.drafts, utterance_id=uid), lang)
+            b = Batch(p.drafts, utterance_id=uid)
+            if carry is not None:
+                b.assigned = {i: carry for i in range(len(p.drafts))}
+            return self._run(b, lang)
         if p.intent == "query":
             return self._query(p, lang)
         if p.intent == "correction":
@@ -207,8 +242,30 @@ class Brain:
                                                kind=say(lang, d.direction).format(amt="").strip()),
                                  lang)
             b.i += 1
+        dup = None if (b.replaces or b.dup_ok) else self._duplicate(b)
+        if dup is not None:
+            d, c = b.drafts[dup], b.assigned[dup]
+            return self._ask(b, "dup", say(
+                lang, "ask_dup", name=c.say, amt=d.amount,
+                kind=say(lang, d.direction).format(amt="").strip()), lang)
         self.pending = None
         return self._commit(b, lang)
+
+    def _duplicate(self, b: Batch) -> int | None:
+        """Index of a line that repeats one saved moments ago, if any."""
+        now, today = self.clock(), self.today()
+        self._recent = [(t, eid) for t, eid in self._recent if now - t <= DUP_WINDOW_S]
+        for _, eid in self._recent:
+            e = self.ledger.entry(eid)
+            if e is None or e.status != ACTIVE:
+                continue
+            for i, d in enumerate(b.drafts):
+                kind = {"credit": CREDIT, "payment": PAYMENT}.get(d.direction)
+                if kind == e.kind and d.amount == e.amount \
+                        and b.assigned[i].id == e.customer_id \
+                        and today + timedelta(days=d.day_offset) == e.txn_date:
+                    return i
+        return None
 
     def _ask(self, b: Batch, kind: str, text: str, lang: str, **extra) -> Reply:
         self.pending = {"type": kind, "batch": b, **extra}
@@ -229,7 +286,7 @@ class Brain:
 
     def _commit(self, b: Batch, lang: str) -> Reply:
         today = self.today()
-        made, promises, chips = [], [], []
+        made, promises, chips, kept = [], [], [], []
         parts: dict[int, list[str]] = {}
         promise_lines = []
         for i, d in enumerate(b.drafts):
@@ -247,6 +304,9 @@ class Brain:
             replaces = b.replaces[i] if i < len(b.replaces) else None
             e = self.ledger.add_entry(c.id, kind, d.amount, when_, b.utterance_id, replaces)
             made.append(e.id)
+            self._recent.append((self.clock(), e.id))
+            if kind == PAYMENT:                    # a promised payment arrived
+                kept += self.ledger.keep_promises(c.id, d.amount)
             parts.setdefault(c.id, []).append(
                 date_prefix(lang, d.day_offset) + say(lang, d.direction, amt=d.amount))
             chips.append({"customer": c.name, "kind": kind, "amount": d.amount,
@@ -254,7 +314,9 @@ class Brain:
         if b.replaces:
             self.ledger.set_status(b.replaces, CORRECTED)
         self.history.append({"entries": b.keep + made, "promises": promises,
-                             "new_customers": b.new_customers})
+                             "new_customers": b.new_customers, "kept": kept})
+        who = {c.id for c in b.assigned.values()}
+        self._last_cid = next(iter(who)) if len(who) == 1 else None
         self.history = self.history[-20:]
 
         stop = _stop(lang)
@@ -293,7 +355,7 @@ class Brain:
 
         # Answers in languages the rules do not cover.
         if p.intent in ("unknown", "choice") and self.llm is not None \
-                and lang not in RULE_LANGS and kind in ("dir", "big", "similar", "wipe"):
+                and lang not in RULE_LANGS and kind in ("dir", "big", "similar", "wipe", "dup"):
             hint = {"dir": "The assistant asked: credit or payment? Answer as a correction "
                            "with only the direction set.",
                     }.get(kind, "The assistant asked a yes/no question.")
@@ -317,6 +379,18 @@ class Brain:
             if c is None:
                 return Reply(say(lang, "cancelled"), lang, "info")
             return pend["resume"](c, lang)
+
+        if kind == "dup":
+            if p.intent == "yes":
+                b.dup_ok = True
+                return self._run(b, lang)
+            if p.intent == "no":
+                return self._cancel(b, lang)
+            if p.intent == "correction":           # "nahi, 430": fix the saved line instead
+                self._drop_batch(b)
+                self.pending = None
+                return None
+            return self._retry(b, lang)
 
         d = b.drafts[b.i]
 
@@ -459,6 +533,7 @@ class Brain:
         b.keep = [e.id for e in entries if e not in targets]
         b.new_customers = []
         self._stale_customers = list(last["new_customers"])
+        self.ledger.set_promise_status(last.get("kept", []), ACTIVE)
         self.history.pop()
         reply = self._run(b, lang)
         if self.pending is None:
@@ -479,6 +554,7 @@ class Brain:
         touched = {e.customer_id for e in (self.ledger.entry(i) for i in last["entries"]) if e}
         self.ledger.set_status(last["entries"], UNDONE)
         self.ledger.void_promises(last["promises"])
+        self.ledger.set_promise_status(last.get("kept", []), ACTIVE)
         for cid in last["new_customers"]:
             if self.ledger.active_count(cid) == 0:
                 self.ledger.deactivate_customer(cid)
@@ -509,6 +585,18 @@ class Brain:
         if p.query == "customer_balance" and p.name_keys:
             return self._resolve(p, lang, lambda c, lg: Reply(
                 f"{c.say}: {balance_tail(lg, self.ledger.balance(c.id))}", lg, "query"))
+        if p.query == "statement" and p.name_keys:
+            return self._resolve(p, lang, self._statement)
+        if p.query == "promises":
+            rows = self.ledger.open_promises()[:4]
+            if not rows:
+                return Reply(say(lang, "q_no_promises"), lang, "query")
+            items = []
+            for _, c, amount, due in rows:
+                days = (due - today).days if due else None
+                items.append(f"{c.say} {amount}" + (
+                    f" {when(lang, days)}" if days is not None and days >= 0 else ""))
+            return Reply(", ".join(items) + _stop(lang), lang, "query")
         if p.query == "top_debtors":
             top = self.ledger.top_debtors(3)
             if not top:
@@ -537,6 +625,19 @@ class Brain:
         if n == 0:
             return Reply(say(lang, "q_none"), lang, "query")
         return Reply(say(lang, "q_total", amt=amt, n=n), lang, "query")
+
+    def _statement(self, c: Customer, lang: str) -> Reply:
+        """Read a customer's last three lines and open their page on screen."""
+        today = self.today()
+        lines = []
+        for row in self.ledger.statement(c.id, 3):
+            days = (date.fromisoformat(row["date"]) - today).days
+            prefix = date_prefix(lang, days) if days < 0 else f"{say(lang, 'today')} "
+            lines.append(prefix + say(lang, "credit" if row["kind"] == CREDIT else "payment",
+                                      amt=row["amount"]))
+        body = f"{', '.join(lines)}{_stop(lang)} " if lines else ""
+        return Reply(f"{c.say}: {body}{balance_tail(lang, self.ledger.balance(c.id))}",
+                     lang, "query", statement={"id": c.id, "name": c.name})
 
     # -------------------------------------------------------------- reminders
     def _reminder(self, p: Parse, lang: str) -> Reply:

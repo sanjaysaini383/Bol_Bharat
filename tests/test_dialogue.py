@@ -184,3 +184,113 @@ async def test_noise_does_not_touch_ledger(brain, seeded):
         assert not (await brain.handle(text)).changed
     after = seeded.snapshot(TODAY)
     assert before["recent"] == after["recent"]
+
+
+# ------------------------------------------------- built for a noisy counter
+def active(ledger):
+    return sorted((e["customer"], e["kind"], e["amount"])
+                  for e in ledger.snapshot(TODAY)["recent"] if e["status"] == "ACTIVE")
+
+
+async def test_repeat_says_the_last_reply_again_and_changes_nothing(brain, seeded):
+    first = await brain.handle("Suresh ka 340 udhaar")
+    again = await brain.handle("dobara bolo")
+    assert again.text == first.text and not again.changed and again.entries == []
+    assert active(seeded) == [("Suresh", "CREDIT", 340)]
+
+
+async def test_repeat_keeps_an_open_question_open(brain, seeded):
+    ask = await brain.handle("Suresh 150")
+    assert ask.kind == "ask"
+    again = await brain.handle("kya bola?")
+    assert again.text == ask.text and again.kind == "ask"
+    await brain.handle("jama")
+    assert active(seeded) == [("Suresh", "PAYMENT", 150)]
+
+
+async def test_help_gives_examples_without_touching_the_ledger(brain, seeded):
+    r = await brain.handle("madad")
+    assert "340" in r.text and not r.changed and active(seeded) == []
+
+
+async def test_same_line_twice_is_questioned_not_written_twice(brain, seeded):
+    await brain.handle("Suresh ka 340 udhaar")
+    r = await brain.handle("Suresh ka 340 udhaar")
+    assert r.kind == "ask" and not r.changed
+    r = await brain.handle("nahi")
+    assert active(seeded) == [("Suresh", "CREDIT", 340)]
+
+
+async def test_same_line_twice_is_written_when_confirmed(brain, seeded):
+    await brain.handle("Suresh ka 340 udhaar")
+    await brain.handle("Suresh ka 340 udhaar")
+    r = await brain.handle("haan")
+    assert r.kind == "entry" and bal(seeded, "Suresh") == 680
+
+
+async def test_duplicate_guard_only_covers_the_last_minute_and_a_half(seeded):
+    now = [0.0]
+    b = Brain(seeded, today=lambda: TODAY, clock=lambda: now[0])
+    b.greeting("hi")
+    await b.handle("Suresh ka 340 udhaar")
+    now[0] = 91.0
+    r = await b.handle("Suresh ka 340 udhaar")
+    assert r.kind == "entry" and bal(seeded, "Suresh") == 680
+
+
+async def test_no_duplicate_question_after_an_undo_or_for_a_different_line(brain, seeded):
+    await brain.handle("Suresh ka 340 udhaar")
+    await brain.handle("hata do")
+    r = await brain.handle("Suresh ka 340 udhaar")
+    assert r.kind == "entry"
+    r = await brain.handle("Suresh ka 350 udhaar")          # different amount
+    assert r.kind == "entry"
+    r = await brain.handle("Suresh ne 340 diye")            # other direction
+    assert r.kind == "entry"
+    r = await brain.handle("Sunita ka 340 udhaar")          # other customer
+    assert r.kind == "entry"
+
+
+async def test_correction_while_duplicate_is_questioned_fixes_the_saved_line(brain, seeded):
+    await brain.handle("Suresh ka 340 udhaar")
+    await brain.handle("Suresh ka 340 udhaar")
+    await brain.handle("nahi, 430")
+    assert active(seeded) == [("Suresh", "CREDIT", 430)]
+
+
+async def test_a_line_without_a_name_right_after_an_entry_is_the_same_customer(brain, seeded):
+    await brain.handle("Suresh ka 340 udhaar")
+    r = await brain.handle("kal 200 diya tha", followup=True)
+    assert r.kind == "entry" and "सुरेश" in r.text
+    assert r.entries[0]["date"] == (TODAY - timedelta(days=1)).isoformat()
+    assert active(seeded) == [("Suresh", "CREDIT", 340), ("Suresh", "PAYMENT", 200)]
+
+
+async def test_carry_over_needs_a_follow_up_and_a_continuation_cue(brain, seeded):
+    await brain.handle("Suresh ka 340 udhaar")
+    r = await brain.handle("kal 200 diya tha")              # not a follow-up: ask
+    assert r.kind == "ask"
+    await brain.handle("hata do")
+    r = await brain.handle("200 jama", followup=True)       # no "kal"/"aur": ask
+    assert r.kind == "ask"
+    assert active(seeded) == [("Suresh", "CREDIT", 340)]
+
+
+async def test_statement_reads_recent_lines_and_names_the_customer_page(brain, seeded):
+    await brain.handle("Suresh ka 340 udhaar, kal 200 diya tha")
+    r = await brain.handle("Suresh ka khata sunao")
+    assert r.kind == "query" and not r.changed
+    assert "340" in r.text and "200" in r.text and "140" in r.text
+    assert r.statement == {"id": cust(seeded, "Suresh").id, "name": "Suresh"}
+
+
+async def test_promises_are_listed_closed_by_a_payment_and_restored_by_undo(brain, seeded):
+    r = await brain.handle("vaade batao")
+    assert "वादा" in r.text and r.kind == "query"            # none yet
+    await brain.handle("Suresh kal 200 de dega")
+    r = await brain.handle("aaj kiska vaada hai")
+    assert "सुरेश 200" in r.text and "कल" in r.text
+    await brain.handle("Suresh ne 200 diye")
+    assert seeded.open_promises() == []
+    await brain.handle("hata do")
+    assert [amount for _, _, amount, _ in seeded.open_promises()] == [200]
