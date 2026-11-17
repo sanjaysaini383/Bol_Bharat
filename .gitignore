@@ -21,3 +21,7 @@ Thumbs.db
 # hackathon handout and local audio samples
 *.pdf
 eval/audio/
+
+# demo video recorder: generated clips and takes
+demo/assets/
+demo/out/

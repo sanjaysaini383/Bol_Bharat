@@ -277,6 +277,6 @@ tests/           pytest suite
 - Reply templates outside Hindi and English were not reviewed by native speakers.
 - One shop per server. There are no user accounts; protect a hosted demo with `ACCESS_TOKEN`.
 - New customer names reach the recogniser's `keyterms` at the next session start, not mid-session.
-- In **Auto** language mode under noise, Prisma sometimes writes Kannada or Marathi speech as Hindi words. Picking the language in the app avoids this.
+- In **Auto** language mode the recogniser is given Hindi hint words and names, which can pull Kannada or Marathi speech into Hindi words. Picking the language in the app sends hints in that language instead, and the entry is then read correctly.
 - Noise as loud as the speaker (0 dB) is beyond what the pipeline handles: 7 of 24 test conversations survive it.
 - The duplicate guard and the carry-over of a customer to a nameless line are per session and reset when the page reloads.
