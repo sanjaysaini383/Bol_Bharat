@@ -155,13 +155,15 @@ function renderReply(m) {
 
 // One customer's page, like a page of the paper khata: every line with the
 // balance after it. Opened by voice ("Ramesh ka khata sunao") or by a tap.
-async function openCustomer(id) {
-  let c;
-  try {
-    const r = await fetch(`api/customer/${id}${qs}`);
-    if (!r.ok) return;
-    c = await r.json();
-  } catch (_) { return; }
+// The page is asked for over the session's socket, so it comes from the same
+// ledger the conversation uses (on a serverless host, HTTP requests can reach
+// a different instance).
+function openCustomer(id) {
+  send({ type: 'customer', id: Number(id) });
+}
+
+function renderCustomer(c) {
+  if (!c) return;
   $('custName').textContent = c.name;
   $('custDetail').textContent = [c.spoken, c.descriptor, c.opt_in ? 'reminder OK' : null]
     .filter(Boolean).join(' · ');
@@ -236,7 +238,8 @@ function connect() {
     state.retry = 0;
     $('conn').className = 'conn on';
     $('conn').title = 'Connected';
-    if (state.started) send({ type: 'start', lang: state.lang, mode: state.mode });
+    // After a dropped connection, carry on: no second greeting.
+    if (state.started) send({ type: 'start', lang: state.lang, mode: state.mode, resume: true });
   };
 
   ws.onclose = (e) => {
@@ -279,6 +282,9 @@ function connect() {
         $('heard').classList.add('muted');
         break;
       case 'reply': renderReply(m); break;
+      case 'customer': renderCustomer(m.data); break;
+      case 'export': saveFile(m.filename, m.csv, 'text/csv;charset=utf-8'); break;
+      case 'purged': alert(`${m.deleted} transcripts mitaye gaye.`); break;
       case 'metrics': renderMetrics(m); break;
       case 'audio_start': player?.begin(m.turn, m.rate); setPhase('speaking'); break;
       case 'audio_end': player?.end(m.turn); if (!player?.playing) setPhase('idle'); break;
@@ -443,18 +449,25 @@ $('typeForm').addEventListener('submit', async (e) => {
   $('menuSheet').close();
 });
 
-$('exportBtn').href = `api/export.csv${qs}`;
+function saveFile(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
-$('resetBtn').addEventListener('click', async () => {
+$('exportBtn').addEventListener('click', () => {
+  if (!state.connected) { banner('Server se judna baaki hai. Thodi der mein try karein.'); return; }
+  send({ type: 'export' });
+});
+$('resetBtn').addEventListener('click', () => {
   if (!confirm('Poora khata mitakar demo data dobara load karein?')) return;
-  await fetch(`/api/demo/reset${qs}`, { method: 'POST' });
+  send({ type: 'reset' });
   $('menuSheet').close();
 });
-$('purgeBtn').addEventListener('click', async () => {
-  const r = await fetch(`/api/purge${qs}`, { method: 'POST' });
-  const j = await r.json();
-  alert(`${j.deleted} transcripts mitaye gaye.`);
-});
+$('purgeBtn').addEventListener('click', () => send({ type: 'purge' }));
 
 $('shareBtn').addEventListener('click', async () => {
   const text = $('reminderText').textContent;

@@ -1,6 +1,6 @@
 // Minimal service worker: makes the app installable and lets the shell open
 // on a flaky connection. Network first, so a deploy is picked up at once.
-const CACHE = 'munim-shell-v3';
+const CACHE = 'munim-shell-v4';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'audio.js', 'pcm-worklet.js',
   'icon.svg', 'manifest.webmanifest'];
 

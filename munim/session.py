@@ -25,6 +25,7 @@ import json
 import logging
 import struct
 import time
+from datetime import date
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -122,7 +123,25 @@ class Session:
     async def _control(self, m: dict) -> None:
         kind = m.get("type")
         if kind == "start":
-            await self._start(m.get("lang") or "auto", m.get("mode") or "ptt")
+            await self._start(m.get("lang") or "auto", m.get("mode") or "ptt",
+                              resume=bool(m.get("resume")))
+        # Ledger requests travel over this socket, not HTTP: on a serverless
+        # host the socket is pinned to one instance, and that instance's ledger
+        # is the one this session reads and writes.
+        elif kind == "customer":
+            try:
+                page = self.app.ledger.customer_page(int(m.get("id")))
+            except (TypeError, ValueError):
+                page = None
+            await self.send({"type": "customer", "data": page})
+        elif kind == "export":
+            await self.send({"type": "export", "csv": self.app.ledger.export_csv(),
+                             "filename": f"khata-{date.today().isoformat()}.csv"})
+        elif kind == "purge":
+            n = self.app.ledger.purge_transcripts(everything=True)
+            await self.send({"type": "purged", "deleted": n})
+        elif kind == "reset":
+            await self.app.reset_demo()
         elif kind == "mode":
             self.mode = "handsfree" if m.get("mode") == "handsfree" else "ptt"
             self.accepting = self.mode == "handsfree"
@@ -151,7 +170,7 @@ class Session:
                 self.t_end = time.monotonic()
                 self._spawn(self._turn(text, None, None, typed=True))
 
-    async def _start(self, lang: str, mode: str) -> None:
+    async def _start(self, lang: str, mode: str, resume: bool = False) -> None:
         lang = lang if lang in LANGS else "auto"
         changed = lang != self.lang_pref or not self._started
         self.lang_pref = lang
@@ -173,6 +192,12 @@ class Session:
                     log.error("speech connect failed: %s", r)
                     await self.send({"type": "error",
                                      "message": f"Gnani connection failed: {r}"})
+        if not self._started and resume:
+            # The same browser session after the socket dropped (a serverless
+            # host closes it at its time limit). The user already heard the
+            # disclosure in this language, so carry on without greeting again.
+            self._started = True
+            self.brain.disclosed.add(self.brain.lang)
         if not self._started:
             self._started = True
             greeting = self.brain.greeting(self.brain.lang)

@@ -46,6 +46,11 @@ class FakeApp:
     async def broadcast_ledger(self):
         pass
 
+    async def reset_demo(self):
+        from munim.seed import seed
+        self.ledger.wipe_all()
+        seed(self.ledger)
+
 
 @pytest.fixture
 def session(seeded, monkeypatch):
@@ -116,3 +121,48 @@ async def test_hands_free_answers_each_utterance_and_carries_the_customer(sessio
     await settle(s)
     assert len(heard(s)) == 2
     assert lines(seeded) == [("Suresh", "CREDIT", 340), ("Suresh", "PAYMENT", 200)]
+
+
+def sent(s, kind):
+    return [m for m in s.ws.sent if m["type"] == kind]
+
+
+# ------------------------------------------- reconnects on a serverless host
+async def test_a_resumed_session_does_not_greet_again_or_disclose_twice(seeded):
+    s = Session(FakeSocket(), FakeApp(seeded))
+    s.brain.today = lambda: TODAY
+    await s._control({"type": "start", "lang": "hi", "mode": "ptt", "resume": True})
+    assert sent(s, "reply") == []                     # no greeting on a resume
+    await s._control({"type": "text", "text": "Suresh ka 340 udhaar"})
+    await settle(s)
+    assert "AI" not in sent(s, "reply")[-1]["text"]
+
+
+async def test_a_new_session_still_greets_with_the_disclosure(seeded):
+    s = Session(FakeSocket(), FakeApp(seeded))
+    await s._control({"type": "start", "lang": "hi", "mode": "ptt"})
+    assert "AI" in sent(s, "reply")[0]["text"]
+
+
+# ---------------------------- ledger requests use the session's own socket
+async def test_customer_page_over_the_socket(session, seeded):
+    sid = next(c.id for c in seeded.customers() if c.name == "Suresh")
+    await session._control({"type": "text", "text": "Suresh ka 340 udhaar"})
+    await settle(session)
+    await session._control({"type": "customer", "id": sid})
+    page = sent(session, "customer")[-1]["data"]
+    assert page["name"] == "Suresh" and page["balance"] == 340
+    await session._control({"type": "customer", "id": "nonsense"})
+    assert sent(session, "customer")[-1]["data"] is None
+
+
+async def test_export_purge_and_reset_over_the_socket(session, seeded):
+    await session._control({"type": "text", "text": "Suresh ka 340 udhaar"})
+    await settle(session)
+    await session._control({"type": "export"})
+    csv = sent(session, "export")[-1]
+    assert csv["filename"].endswith(".csv") and "Suresh,CREDIT,340" in csv["csv"]
+    await session._control({"type": "purge"})
+    assert sent(session, "purged")[-1]["deleted"] >= 1
+    await session._control({"type": "reset"})
+    assert {c.name for c in seeded.customers()} >= {"Ramesh Kumar", "Imran"}
