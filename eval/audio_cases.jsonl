@@ -1,0 +1,24 @@
+{"id": "ps-sentence", "say": ["सुरेश का तीन सौ चालीस उधार, कल दो सौ दिया था"], "expect": [["Suresh", "CREDIT", 340], ["Suresh", "PAYMENT", 200]]}
+{"id": "three-forty", "say": ["Suresh ka three forty udhaar likh do"], "expect": [["Suresh", "CREDIT", 340]]}
+{"id": "dedh-sau", "say": ["सुनीता ने डेढ़ सौ दिए"], "expect": [["Sunita", "PAYMENT", 150]]}
+{"id": "dhai-sau-saamaan", "say": ["सुरेश को ढाई सौ का सामान दिया"], "expect": [["Suresh", "CREDIT", 250]]}
+{"id": "saade-chaar-sau", "say": ["सुनीता का साढ़े चार सौ उधार लिखो"], "expect": [["Sunita", "CREDIT", 450]]}
+{"id": "pandrah-sau", "say": ["सुरेश ने पंद्रह सौ जमा किए"], "expect": [["Suresh", "PAYMENT", 1500]]}
+{"id": "pachhattar", "say": ["सुनीता का पचहत्तर रुपये उधार"], "expect": [["Sunita", "CREDIT", 75]]}
+{"id": "hazaar-250", "say": ["सुरेश का एक हज़ार दो सौ पचास उधार"], "expect": [["Suresh", "CREDIT", 1250]]}
+{"id": "english-paid", "lang": "en", "say": ["Suresh paid two hundred rupees"], "expect": [["Suresh", "PAYMENT", 200]]}
+{"id": "english-took", "lang": "en", "say": ["Sunita took goods worth five hundred and fifty"], "expect": [["Sunita", "CREDIT", 550]]}
+{"id": "fix-amount", "say": ["सुरेश का तीन सौ चालीस उधार", "नहीं, चार सौ तीस"], "expect": [["Suresh", "CREDIT", 430]]}
+{"id": "fix-direction", "say": ["सुनीता का दो सौ उधार", "नहीं, जमा था"], "expect": [["Sunita", "PAYMENT", 200]]}
+{"id": "untaalis", "say": ["सुरेश का उनतालीस रुपये उधार"], "expect": [["Suresh", "CREDIT", 39]]}
+{"id": "sadsath", "say": ["सुनीता का सड़सठ रुपये उधार"], "expect": [["Sunita", "CREDIT", 67]]}
+{"id": "navaasi", "say": ["सुरेश ने नवासी रुपये दिए"], "expect": [["Suresh", "PAYMENT", 89]]}
+{"id": "do-hazaar-500", "say": ["सुनीता का दो हज़ार पाँच सौ उधार"], "expect": [["Sunita", "CREDIT", 2500]]}
+{"id": "descriptor", "say": ["दूध वाले रमेश का एक सौ बीस उधार"], "expect": [["Ramesh Kumar", "CREDIT", 120]]}
+{"id": "shared-name", "say": ["रमेश का पाँच सौ उधार", "गुप्ता"], "expect": [["Ramesh Gupta", "CREDIT", 500]]}
+{"id": "new-customer", "say": ["मोहन का अस्सी रुपये उधार"], "expect": [["Mohan", "CREDIT", 80]]}
+{"id": "sava-do-sau", "say": ["सुरेश का सवा दो सौ उधार"], "expect": [["Suresh", "CREDIT", 225]]}
+{"id": "undo", "say": ["सुनीता का नब्बे रुपये उधार", "हटा दो"], "expect": []}
+{"id": "codemix-payment", "say": ["Sunita ne five hundred ka payment kiya"], "expect": [["Sunita", "PAYMENT", 500]]}
+{"id": "kannada", "lang": "kn", "llm": true, "say": ["ಸುರೇಶ್ ಗೆ ಮುನ್ನೂರು ರೂಪಾಯಿ ಸಾಲ ಬರೆಯಿರಿ"], "expect": [["Suresh", "CREDIT", 300]]}
+{"id": "marathi", "lang": "mr", "llm": true, "say": ["सुनीता ला पाचशे रुपये उधार दिले"], "expect": [["Sunita", "CREDIT", 500]]}
